@@ -26,13 +26,13 @@
     "test": "npm run test -w @netnavr/shell-server"
   },
   "dependencies": {
-    "@openai/codex": "^0.142.5",
-    "@openai/codex-sdk": "^0.142.5"
+    "@openai/codex": "^0.146.0",
+    "@openai/codex-sdk": "^0.146.0"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.4",
     "electron-builder": "^26.15.3",
-    "esbuild": "^0.25.12",
-    "typescript": "^5.9.3"
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
   }
 }
