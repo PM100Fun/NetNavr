@@ -1,0 +1,14 @@
+node_modules
+dist
+release
+.env
+.DS_Store
+*.log
+*.pid
+coverage
+.vite
+
+# Defensive guard for TypeScript output accidentally emitted beside package source.
+packages/*/src/*.js
+packages/*/src/*.d.ts
+packages/*/src/*.d.ts.map

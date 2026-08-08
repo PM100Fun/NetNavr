@@ -1,0 +1,33 @@
+{
+  "name": "@netnavr/shell-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit --rootDir ../.. && tsc -p tsconfig.test.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@netnavr/shell-codex-client": "0.1.0",
+    "@netnavr/shell-model-router": "0.1.0",
+    "@netnavr/shell-protocol": "0.1.0",
+    "dotenv": "^16.4.7",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2"
+  }
+}

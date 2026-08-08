@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+data/
+node_modules/
+coverage/
+*.log
+.DS_Store
+dist/
+release/
+build/
+.vite/
+.idea/
+.vscode/
+
+# Large upstream checkout used only as a local implementation reference.
+shell/sources/openai-codex/

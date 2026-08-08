@@ -1,0 +1,18 @@
+{
+  "name": "netnavr-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NetNavr core, shell, and payment module workspace.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:core": "npm --prefix core start",
+    "test:core": "npm --prefix core test",
+    "test:pay": "npm --prefix pay test",
+    "test:shell": "npm --prefix shell test",
+    "check:shell": "npm --prefix shell run check",
+    "build:shell": "npm --prefix shell run build",
+    "verify": "npm run test:core && npm run test:pay && npm run test:shell && npm run check:shell"
+  }
+}
