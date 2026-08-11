@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   createServer,
   type IncomingMessage,
@@ -6,11 +8,17 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import {
+  CORE_SCHEMA_VERSION,
+  CoreNodeStore,
+  type CoreNodeIdentity,
+} from "./node-store.ts";
 
 export const CORE_SERVICE = "netnavr-core";
 export const CORE_API_VERSION = "v1";
 export const CORE_HOST = "127.0.0.1";
 export const DEFAULT_CORE_PORT = 8786;
+export const CORE_DATABASE_FILENAME = "core.sqlite";
 
 const packageMetadata = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -32,13 +40,19 @@ export interface CoreHealth {
 
 export interface StartCoreOptions {
   port?: number;
+  databasePath?: string;
 }
 
 export interface RunningCore {
   readonly host: typeof CORE_HOST;
   readonly port: number;
   readonly origin: string;
+  readonly node: CoreNodeIdentity;
   close(): Promise<void>;
+}
+
+export function defaultCoreDatabasePath(): string {
+  return join(homedir(), ".netnavr", "core", CORE_DATABASE_FILENAME);
 }
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown): void {
@@ -56,6 +70,7 @@ function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   startedAt: bigint,
+  node: CoreNodeIdentity,
 ): void {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
 
@@ -70,6 +85,11 @@ function routeRequest(
     };
 
     writeJson(response, 200, health);
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/v1/node") {
+    writeJson(response, 200, node);
     return;
   }
 
@@ -108,16 +128,25 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
   const port = options.port ?? DEFAULT_CORE_PORT;
   validatePort(port);
 
+  const store = new CoreNodeStore(options.databasePath ?? defaultCoreDatabasePath());
+  const node = store.getNodeIdentity();
+
   const startedAt = process.hrtime.bigint();
   const server = createServer((request, response) => {
-    routeRequest(request, response, startedAt);
+    routeRequest(request, response, startedAt, node);
   });
 
-  await listen(server, port);
+  try {
+    await listen(server, port);
+  } catch (error) {
+    store.close();
+    throw error;
+  }
 
   const address = server.address();
   if (address === null || typeof address === "string") {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
     throw new Error("core server did not bind to a TCP address");
   }
 
@@ -128,23 +157,35 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
     host: CORE_HOST,
     port: boundPort,
     origin: `http://${CORE_HOST}:${boundPort}`,
+    node,
     close(): Promise<void> {
       if (closePromise !== undefined) {
         return closePromise;
       }
 
       closePromise = new Promise<void>((resolve, reject) => {
-        if (!server.listening) {
+        const finish = (serverError?: Error): void => {
+          try {
+            store.close();
+          } catch (storageError) {
+            reject(storageError);
+            return;
+          }
+
+          if (serverError) {
+            reject(serverError);
+            return;
+          }
           resolve();
+        };
+
+        if (!server.listening) {
+          finish();
           return;
         }
 
         server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
+          finish(error ?? undefined);
         });
       });
 
@@ -152,3 +193,5 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
     },
   };
 }
+
+export { CORE_SCHEMA_VERSION };
