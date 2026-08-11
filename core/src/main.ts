@@ -1,5 +1,7 @@
+import { resolve } from "node:path";
 import {
   CORE_API_VERSION,
+  CORE_DATABASE_FILENAME,
   CORE_HOST,
   CORE_SERVICE,
   CORE_VERSION,
@@ -24,9 +26,20 @@ function portFromEnvironment(value: string | undefined): number {
   return port;
 }
 
+function databasePathFromEnvironment(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value.length === 0 || value.includes("\0")) {
+    throw new TypeError("NETNAVR_CORE_DATA_DIR must be a non-empty directory path");
+  }
+  return resolve(value, CORE_DATABASE_FILENAME);
+}
+
 async function main(): Promise<void> {
   const core = await startCore({
     port: portFromEnvironment(process.env.NETNAVR_CORE_PORT),
+    databasePath: databasePathFromEnvironment(process.env.NETNAVR_CORE_DATA_DIR),
   });
 
   let stopping = false;
@@ -66,6 +79,8 @@ async function main(): Promise<void> {
       service: CORE_SERVICE,
       apiVersion: CORE_API_VERSION,
       version: CORE_VERSION,
+      nodeId: core.node.nodeId,
+      schemaVersion: core.node.schemaVersion,
       host: CORE_HOST,
       port: core.port,
     })}\n`,
