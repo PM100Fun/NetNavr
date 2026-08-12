@@ -1,276 +1,247 @@
-# NetNavr
+<div align="center">
 
-> A local-first personal network navigator designed to stay yours across
-> models and devices.
+# 🧭 NetNavr
 
-[English](#english) · [简体中文](#简体中文)
+**由用户掌控的个人 AI 连续性底座**
 
-**Pre-alpha / Public Lab.** NetNavr is an early, runnable research prototype.
-It is not ready for ordinary users, important data, production payments, or
-untrusted networks. Features described as goals are not implemented unless the
-current code and tests demonstrate them.
+让身份、受治理记忆、权限与能力留在你控制的基础设施上；<br>
+模型、服务商、设备与交互界面可以替换。
+
+[![Release](https://img.shields.io/github/v/release/PM100Fun/netnavr?display_name=tag&sort=semver&label=release)](https://github.com/PM100Fun/netnavr/releases/latest)
+[![CI](https://github.com/PM100Fun/netnavr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PM100Fun/netnavr/actions/workflows/ci.yml)
+[![Status: Pre-alpha](https://img.shields.io/badge/status-pre--alpha-f59e0b.svg)](#current-status)
+[![Node.js 24+](https://img.shields.io/badge/Node.js-%E2%89%A524-339933.svg?logo=nodedotjs&logoColor=white)](./package.json)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/PM100Fun/netnavr?style=social)](https://github.com/PM100Fun/netnavr/stargazers)
+
+**[项目定位](#positioning)** · **[当前能力](#capabilities)** · **[快速开始](#quick-start)** · **[技术架构](#architecture)** · **[路线图](#roadmap)** · **[English](#english)**
+
+</div>
+
+---
+
+<a id="current-status"></a>
+
+> [!WARNING]
+> **Pre-alpha / Public Lab.** NetNavr 是可运行的早期研究原型，还不适合普通用户、重要数据、生产支付或不受信任的网络。本文把“已验证实现”和“产品目标”明确分开；没有被当前代码与测试证明的能力，不视为已经完成。
+
+<a id="positioning"></a>
+
+## ✨ 项目定位
+
+NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的**连续性与所有权**：当模型、供应商和设备变化时，属于用户的身份、记忆、权限和能力仍应保持可控、可迁移、可审计。
+
+| 原则 | 含义 |
+| :--- | :--- |
+| 🏠 **用户所有** | 持久身份与数据应位于用户控制的基础设施，而不是绑定某一家模型服务商。 |
+| 🔁 **智能可替换** | 模型与 Provider 是可替换的智能来源，不应成为个人 AI 状态的唯一持有者。 |
+| 🧾 **治理优先** | 记忆需要来源、确认状态和明确权限；自动化能力必须受边界约束。 |
+| 🧩 **能力可组合** | Tool、Connector、Skill 与 Plugin 最终应以统一的 Ability 契约被安装和调用。 |
+| 🛡️ **高风险隔离** | 支付等高风险行为保持独立边界，不直接混入通用运行时。 |
+
+> [!IMPORTANT]
+> NetNavr 的第一项产品证明是“连续性”，不是功能数量：在用户掌控的 Node 上建立身份与受治理记忆，通过清晰权限调用一个低风险 Ability，切换智能 Provider 后状态仍然连续，并能完成隔离备份与恢复。
+
+<a id="capabilities"></a>
+
+## 🚦 当前可验证能力
+
+| 模块 | 职责 | 当前实现 | 状态 |
+| :--- | :--- | :--- | :---: |
+| [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；只读健康与 Node 接口 | ✅ `v0.2.0` |
+| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；本地 WebSocket 服务；会话令牌；Mock 与 Codex Provider 路由 | 🧪 原型 |
+| [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒订单账本；幂等创建；Sandbox Channel；签名 Webhook 测试 | 🧪 仅沙盒 |
+
+<details>
+<summary><b>📦 展开查看当前实现边界</b></summary>
+
+### Core
+
+- 为一次本地安装创建稳定、非秘密的 Node ID，并持久化到 SQLite；
+- 通过 `GET /v1/health` 与 `GET /v1/node` 提供只读检查；
+- 数据库损坏、迁移历史不一致、schema 版本过新或 Node ID 无效时均会失败关闭；
+- 打开主数据库前取得独占运行时锁；同一规范化数据目录的竞争进程返回 `core_runtime_already_running`；
+- 进程意外退出后由操作系统释放锁，不替换数据库或 Node ID；
+- POSIX 系统上将数据目录限制为 `0700`，数据库、SQLite sidecar 与锁文件限制为 `0600`。
+
+### Shell
+
+- 包含 Web、Electron Desktop、本地 Agent Server、协议包、Model Router 与 Codex Client；
+- 本地 WebSocket 会话由服务端控制工作区、sandbox 与 approval policy；
+- `npm run dev` 会为服务端与 Web 端生成并共享新的本地会话令牌。
+
+### Pay
+
+- 只提供可测试的 Sandbox 支付纵切，不是生产支付基础设施；
+- 与 Core 的通用运行时职责保持分离；
+- Shell 与 Pay 默认都使用 `127.0.0.1:8787`，并行运行时必须修改 Pay 端口。
+
+</details>
+
+### 尚未完成
+
+**Navigator 身份、受治理记忆、完整权限执行、Provider 切换后的状态连续性、设备配对、备份与恢复，以及公开 Ability 清单 / 沙盒 / 签名模型仍在设计或开发中。** Node ID 只是本地安装锚点，不是用户身份或认证凭据。
+
+<a id="architecture"></a>
+
+## 🏗️ 技术架构
+
+```mermaid
+flowchart LR
+    R["NetNavr"] --> C["core/<br/>共享运行时与持久状态"]
+    R --> S["shell/<br/>可替换交互界面"]
+    R --> P["pay/<br/>隔离的支付边界"]
+
+    C --> C1["Loopback HTTP"]
+    C --> C2["SQLite v1 + Node ID"]
+    C --> C3["Runtime lock + storage integrity"]
+
+    S --> S1["Web + Electron"]
+    S --> S2["Local WebSocket"]
+    S --> S3["Mock / Codex providers"]
+
+    P --> P1["Sandbox ledger"]
+    P --> P2["Idempotency + signed webhook"]
+```
+
+| 层 | 技术选择 |
+| :--- | :--- |
+| **Core** | Node.js 24 · TypeScript · `node:http` · `node:sqlite` |
+| **Shell** | Electron · React · Vite · TypeScript · WebSocket · OpenAI Codex SDK |
+| **Pay** | Node.js 24 · SQLite · HMAC 签名 · 可插拔 Channel |
+| **质量门禁** | `node:test` · TypeScript checks · GitHub Actions |
+
+<a id="quick-start"></a>
+
+## 🚀 快速开始
+
+> 环境要求：Node.js 24 或更高版本 · npm
+
+### 1. 获取代码并验证工作区
+
+```bash
+git clone https://github.com/PM100Fun/netnavr.git
+cd netnavr
+npm --prefix shell ci
+npm run verify
+```
+
+### 2. 启动 Core
+
+```bash
+npm run dev:core
+```
+
+Core 默认只监听 `127.0.0.1:8786`。另开终端验证：
+
+```bash
+curl http://127.0.0.1:8786/v1/health
+curl http://127.0.0.1:8786/v1/node
+```
+
+默认数据库位于 `~/.netnavr/core/core.sqlite`。使用隔离数据目录：
+
+```bash
+# macOS / Linux
+NETNAVR_CORE_DATA_DIR=/absolute/path/to/data npm run dev:core
+```
+
+```powershell
+# Windows PowerShell
+$env:NETNAVR_CORE_DATA_DIR = "C:\path\to\isolated-data"
+npm run dev:core
+```
+
+### 3. 启动 Shell
+
+```bash
+npm --prefix shell run dev
+```
+
+Shell 会启动本地 Agent Server 与 Web 界面。若分别启动服务端和 Web 端，请按 [`shell/.env.example`](./shell/.env.example) 为两端提供同一个新会话令牌。
+
+### 4. 可选：启动 Pay 沙盒
+
+Pay 与 Shell 默认端口相同。需要同时运行时，请给 Pay 分配另一个回环端口：
+
+```bash
+# macOS / Linux
+NETNAVR_PAY_PORT=8788 npm --prefix pay start
+```
+
+```powershell
+# Windows PowerShell
+$env:NETNAVR_PAY_PORT = "8788"
+npm --prefix pay start
+```
+
+> [!CAUTION]
+> 当前开发接口尚未具备完整的应用级认证与权限系统。不要把 Core、Shell 或 Pay 服务暴露到公网。
+
+## ⚙️ 常用配置
+
+| 组件 | 配置项 | 默认值 | 用途 |
+| :--- | :--- | :--- | :--- |
+| Core | `NETNAVR_CORE_PORT` | `8786` | Core 回环端口 |
+| Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core 数据目录 |
+| Shell | `PORT` | `8787` | 本地 Agent Server 端口 |
+| Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Web 端本地 WebSocket 地址 |
+| Pay | `NETNAVR_PAY_PORT` | `8787` | Pay 沙盒端口 |
+| Pay | `NETNAVR_PAY_DB_PATH` | `./data/netnavr-pay.sqlite` | Pay 沙盒数据库 |
+
+完整 Shell 与 Pay 示例分别见 [`shell/.env.example`](./shell/.env.example) 和 [`pay/.env.example`](./pay/.env.example)。
+
+<a id="roadmap"></a>
+
+## 🗺️ 连续性路线图
+
+| 阶段 | 验证目标 | 状态 |
+| :--- | :--- | :---: |
+| **本地基础** | Loopback Core、SQLite v1、持久 Node ID、单实例存储与文件权限 | ✅ 已验证 |
+| **交互原型** | Web / Electron Shell、本地认证 WebSocket、Mock / Codex Provider | 🧪 原型 |
+| **身份与记忆** | Navigator 身份、带来源与确认状态的受治理记忆 | ⏳ 下一阶段 |
+| **能力边界** | 一个低风险 Ability、明确权限、结构化结果 | ⬜ 未完成 |
+| **连续性证明** | 切换 Provider 后身份与已确认记忆不丢失 | ⬜ 未完成 |
+| **可恢复性** | 隔离备份、恢复与设备配对 | ⬜ 未完成 |
+| **开放生态** | Ability manifest、sandbox、签名与第三方兼容契约 | ⬜ 设计中 |
+
+路线图描述验证顺序，不构成发布日期承诺。
+
+## 🤝 参与项目
+
+NetNavr 现阶段最需要可复现的失败报告、小而聚焦的实验，以及对“用户所有权与可迁移性”模型的批评与建议。
+
+- 提交代码前阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)
+- 项目治理方式见 [GOVERNANCE.md](./GOVERNANCE.md)
+- 社区行为规范见 [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+- 不要在公开 Issue 中报告安全漏洞；私密报告方式见 [SECURITY.md](./SECURITY.md)
+- 已发布版本见 [GitHub Releases](https://github.com/PM100Fun/netnavr/releases)
+
+如果你认同“个人 AI 应该属于用户”，欢迎 Star、Issue 和聚焦的 Pull Request。
+
+<a id="security"></a>
+
+## 🔐 安全边界
+
+- Core 固定监听本机回环地址；不要通过代理或端口转发把当前原型暴露到公网；
+- Windows 当前依赖用户数据目录继承的 ACL，未来安装器仍需显式配置并验证仅当前用户可访问的 ACL；
+- `pay/` 仅用于沙盒验证，不处理真实资金；
+- 任何涉及重要数据、凭据或不可逆操作的集成都应等待权限模型完成。
 
 <a id="english"></a>
 
 ## English
 
-### What is NetNavr?
+**NetNavr is a local-first continuity layer for personal AI.** It aims to keep identity, governed memory, permissions, and installed abilities on infrastructure controlled by the user while models, providers, devices, and interaction surfaces remain replaceable.
 
-NetNavr is building a user-controlled layer for personal AI continuity: your
-identity, governed memory, permissions, and installed abilities should remain
-portable while models, providers, devices, and interfaces can be replaced.
+Today, the repository contains:
 
-It is intended to become a **personal network navigator**, not another chat UI,
-an unrestricted agent runner, or a wrapper around one model provider.
+- a loopback-only Core with SQLite schema v1, a persistent local Node ID, single-owner runtime storage, and read-only health / Node endpoints;
+- an Electron / React / TypeScript Shell with a local authenticated WebSocket server and Mock / Codex provider routing;
+- an isolated payment sandbox with an idempotent SQLite ledger and signed webhook tests.
 
-### What works today
+This is a **pre-alpha public lab**, not a production agent platform or payment system. Navigator identity, governed memory, permission enforcement, provider-switch continuity, pairing, backup / restore, and the public Ability contract are not complete. See [Quick start](#quick-start), [Security boundaries](#security), [CONTRIBUTING.md](./CONTRIBUTING.md), and [SECURITY.md](./SECURITY.md) before experimenting.
 
-| Area | Responsibility | Verifiable implementation |
-| --- | --- | --- |
-| `core/` | Shared runtime, durable state, identity, governed data, permissions, and ability contracts | Loopback-only daemon; single-owner data directory; SQLite schema migration v1; persistent Node identity; read-only health and Node endpoints |
-| `shell/` | Replaceable human interaction surfaces | Electron/React/TypeScript shell; local server; mock provider and Codex provider integration |
-| `pay/` | Payment-specific behavior kept outside the general runtime | Sandbox SQLite order ledger; idempotent order creation; signed webhook tests |
+## 📄 License
 
-The current Core creates one stable, non-secret **Node ID** for a local
-installation and stores it in SQLite. The ID survives process restarts and can
-be inspected through `GET /v1/node`. Storage initialization fails closed when a
-database is corrupt, has inconsistent migration history, or uses a newer schema
-than this Core understands. A missing or invalid stored Node identity is also
-rejected instead of being silently replaced.
-
-For file-backed storage, Core acquires an exclusive runtime lock before opening
-the main database. A second process targeting the same normalized data directory
-fails with the machine-readable code `core_runtime_already_running`; an
-unexpected process exit releases the operating-system lock without replacing
-the database or Node ID. On POSIX systems Core enforces mode `0700` on its data
-directory and `0600` on its database, SQLite sidecars, and runtime lock. Windows
-does not expose equivalent POSIX mode bits, so the current prototype relies on
-the inherited ACL of the selected per-user data directory; a future installer
-must provision and verify an explicit user-only ACL before sensitive data is
-stored.
-
-A Node ID is not a user identity or an authentication credential. **Navigator
-identity, governed memory, permission enforcement, provider-switching
-continuity, pairing, and backup/restore are not complete yet.**
-
-### Run and verify locally
-
-Requirements:
-
-- Node.js 24 or newer
-- npm
-
-Install the Shell dependencies and run every current repository check:
-
-```bash
-npm --prefix shell ci
-npm run verify
-```
-
-Start Core:
-
-```bash
-npm run dev:core
-```
-
-Core listens on `127.0.0.1:8786` by default. In another terminal:
-
-```bash
-curl http://127.0.0.1:8786/v1/health
-curl http://127.0.0.1:8786/v1/node
-```
-
-Its default database is `~/.netnavr/core/core.sqlite`. To use an isolated data
-directory:
-
-```bash
-NETNAVR_CORE_DATA_DIR=/absolute/path/to/data npm run dev:core
-```
-
-Node.js 24 may print an `ExperimentalWarning` for its built-in `node:sqlite`
-module. That warning is expected in this pre-alpha prototype.
-
-Start the browser Shell in another terminal:
-
-```bash
-npm --prefix shell run dev
-```
-
-The payment sandbox defaults to the same development port as the Shell. If both
-must run at once, give Pay a different loopback port:
-
-```bash
-NETNAVR_PAY_PORT=8788 npm --prefix pay start
-```
-
-These development endpoints do not yet have a complete application-level
-authentication and permission system. Do not expose them to the public internet.
-
-### The first product proof
-
-The first meaningful proof is continuity, not feature count:
-
-1. Create a Navigator identity on a user-controlled Node.
-2. Save governed memory with provenance and an explicit confirmation state.
-3. Invoke one low-risk ability through a clear permission boundary.
-4. Switch intelligence providers without losing identity or confirmed memory.
-5. Back up and restore the same state in an isolated environment.
-
-The persistent Node identity now establishes the storage and installation anchor
-for that proof. It does not complete the proof by itself.
-
-### Abilities
-
-NetNavr uses **Ability** as the umbrella term for an installable capability. An
-Ability package may contain one or more building blocks:
-
-- **Tool** — one bounded operation the runtime can invoke.
-- **Connector** — authenticated access to an external system or data source.
-- **Skill** — instructions and workflow knowledge for using capabilities.
-- **Plugin** — an installable package that may combine tools, connectors,
-  skills, UI, storage, and lifecycle hooks under a permission manifest.
-
-The public Ability manifest, sandbox, permission contract, signing model, and
-third-party compatibility promise are still being designed. Core must retain
-secrets and policy authority; installed code should receive only restricted
-handles granted by the user.
-
-### Contributing and security
-
-NetNavr is looking first for reproducible failure reports, focused experiments,
-and critique of its ownership and portability model. Read
-[CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
-
-Do not report vulnerabilities in a public issue. See
-[SECURITY.md](SECURITY.md) for the private reporting path and current safety
-limits.
-
-Licensed under the Apache License 2.0. See [LICENSE](LICENSE).
-
----
-
-<a id="简体中文"></a>
-
-## 简体中文
-
-### NetNavr 是什么？
-
-NetNavr 正在构建一个由用户掌控的个人 AI 连续性底座：身份、受治理的记忆、
-权限与已安装能力应当能够持续保留，而模型、服务商、设备和交互界面都可以替换。
-
-它的目标是成为一个**个人网络领航员**，而不是又一个聊天界面、无限制 Agent
-执行器，或某一家模型服务商的套壳应用。
-
-### 今天已经能运行什么
-
-| 区域 | 责任 | 可验证实现 |
-| --- | --- | --- |
-| `core/` | 共享运行时、持久状态、身份、受治理数据、权限与能力契约 | 仅监听本机回环地址的服务；数据目录单实例所有权；SQLite v1 迁移；持久 Node 身份；只读健康与 Node 接口 |
-| `shell/` | 可替换的人机交互界面 | Electron/React/TypeScript Shell；本地服务；Mock Provider 与 Codex Provider 接入 |
-| `pay/` | 与通用运行时隔离的支付专属行为 | SQLite 沙盒订单账本；幂等创建订单；签名 Webhook 测试 |
-
-当前 Core 会为一次本地安装创建一个稳定、且不作为秘密使用的 **Node ID**，并保存在
-SQLite 中。它在进程重启后保持不变，可通过 `GET /v1/node` 读取。当数据库损坏、
-迁移记录不一致，或数据库版本高于当前 Core 可理解的版本时，启动会明确失败，
-不会静默覆盖或降级数据。已保存的 Node 身份如果缺失或格式无效，也会拒绝启动，
-而不是悄悄换成一个新身份。
-
-对于落盘存储，Core 会在打开主数据库之前取得独占运行时锁。第二个指向同一规范化
-数据目录的进程会以机器可识别的 `core_runtime_already_running` 错误失败；首个进程
-意外退出后，操作系统锁会自动释放，不会替换数据库或 Node ID。在 POSIX 系统上，
-Core 会把数据目录权限设为 `0700`，把数据库、SQLite 辅助文件和运行时锁设为
-`0600`。Windows 没有等价的 POSIX mode 位，因此当前原型依赖所选用户数据目录
-继承到的 ACL；在保存敏感数据之前，未来安装器仍必须显式配置并验证仅当前用户
-可访问的 ACL。
-
-Node ID 不是用户身份，也不是认证凭据。**Navigator 身份、受治理记忆、权限执行、
-切换模型服务商后的连续性、设备配对和备份恢复，目前都尚未完成。**
-
-### 本地运行与验证
-
-环境要求：
-
-- Node.js 24 或更高版本
-- npm
-
-安装 Shell 依赖并运行仓库当前全部检查：
-
-```bash
-npm --prefix shell ci
-npm run verify
-```
-
-启动 Core：
-
-```bash
-npm run dev:core
-```
-
-Core 默认只监听 `127.0.0.1:8786`。另开一个终端即可核对：
-
-```bash
-curl http://127.0.0.1:8786/v1/health
-curl http://127.0.0.1:8786/v1/node
-```
-
-默认数据库路径是 `~/.netnavr/core/core.sqlite`。如需隔离数据目录：
-
-```bash
-NETNAVR_CORE_DATA_DIR=/绝对路径/到/数据目录 npm run dev:core
-```
-
-Node.js 24 可能会为内置的 `node:sqlite` 模块显示 `ExperimentalWarning`；在当前
-Pre-alpha 原型中，这是预期提示。
-
-另开一个终端启动浏览器 Shell：
-
-```bash
-npm --prefix shell run dev
-```
-
-Pay 沙盒默认与 Shell 使用同一个开发端口。如需同时运行，请给 Pay 指定另一个
-回环端口：
-
-```bash
-NETNAVR_PAY_PORT=8788 npm --prefix pay start
-```
-
-这些开发接口尚未具备完整的应用级认证与权限系统，请勿将其暴露到公网。
-
-### 第一阶段要证明什么
-
-NetNavr 的第一个有效产品证明是“连续性”，而不是功能数量：
-
-1. 在用户掌控的 Node 上创建 Navigator 身份；
-2. 保存带来源、带明确确认状态的受治理记忆；
-3. 通过清晰的权限边界调用一个低风险 Ability；
-4. 更换智能服务商后，身份与已确认记忆仍然连续；
-5. 在隔离环境中完成同一份状态的备份与恢复。
-
-这次实现的持久 Node 身份，为上述证明建立了存储与安装锚点，但它本身并不代表
-整个证明已经完成。
-
-### Ability 能力体系
-
-NetNavr 使用 **Ability（能力）** 作为“可安装能力”的总称。一个 Ability 包可以
-包含下列一个或多个构件：
-
-- **Tool（工具）**：运行时可以调用的一项边界明确的操作；
-- **Connector（连接器）**：对外部系统或数据源的鉴权访问；
-- **Skill（技能）**：指导如何使用能力的说明与工作流知识；
-- **Plugin（插件）**：一种可安装的软件包，可以在权限清单约束下组合 Tool、
-  Connector、Skill、界面、存储和生命周期钩子。
-
-公开 Ability 清单、沙盒、权限契约、签名机制和第三方兼容承诺仍在设计中。Core
-必须保留秘密信息与策略裁决权；安装代码只能获得用户明确授予的受限句柄。
-
-### 参与贡献与安全
-
-NetNavr 现阶段最需要的是可复现的失败报告、小而聚焦的实验，以及对“用户所有权
-与可迁移性”模型的批评与建议。提交修改前请先阅读
-[CONTRIBUTING.md](CONTRIBUTING.md)。
-
-请勿在公开 Issue 中报告安全漏洞。私密报告方式与当前安全边界见
-[SECURITY.md](SECURITY.md)。
-
-项目采用 Apache License 2.0，详见 [LICENSE](LICENSE)。
+Licensed under the [Apache License 2.0](./LICENSE). See [NOTICE](./NOTICE) for attribution information.
