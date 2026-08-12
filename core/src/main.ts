@@ -93,7 +93,20 @@ await main().catch((error: unknown) => {
     `${JSON.stringify({
       event: "startup_failed",
       service: CORE_SERVICE,
+      code: errorCode(error),
       error: error instanceof Error ? error.message : String(error),
     })}\n`,
   );
 });
+
+function errorCode(error: unknown): string {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.length > 0
+  ) {
+    return error.code;
+  }
+  return "core_startup_failed";
+}

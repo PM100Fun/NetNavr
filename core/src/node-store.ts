@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import {
+  ensurePrivateFile,
+  hardenExistingPrivateFile,
+  prepareCoreStoragePath,
+} from "./storage-permissions.ts";
 
 export const CORE_SCHEMA_VERSION = 1;
 
@@ -55,20 +58,22 @@ export class CoreNodeStore {
       throw new TypeError("databasePath must not be empty");
     }
 
-    this.databasePath = databasePath;
-
-    if (databasePath !== ":memory:") {
-      mkdirSync(dirname(databasePath), { mode: 0o700, recursive: true });
+    const storagePath =
+      databasePath === ":memory:" ? undefined : prepareCoreStoragePath(databasePath);
+    this.databasePath = storagePath?.databasePath ?? databasePath;
+    if (storagePath !== undefined) {
+      ensurePrivateFile(this.databasePath);
     }
 
-    this.#database = new DatabaseSync(databasePath);
+    this.#database = new DatabaseSync(this.databasePath);
 
     try {
       this.#database.exec("PRAGMA foreign_keys = ON");
       this.#database.exec("PRAGMA busy_timeout = 5000");
       this.#migrate();
-      if (databasePath !== ":memory:") {
+      if (storagePath !== undefined) {
         this.#database.exec("PRAGMA journal_mode = WAL");
+        this.#hardenStorageFiles();
       }
       this.getNodeIdentity();
     } catch (error) {
@@ -182,6 +187,12 @@ export class CoreNodeStore {
     this.#database
       .prepare("INSERT INTO node_identity (singleton, node_id, created_at) VALUES (1, ?, ?)")
       .run(`node_${randomUUID()}`, new Date().toISOString());
+  }
+
+  #hardenStorageFiles(): void {
+    hardenExistingPrivateFile(this.databasePath);
+    hardenExistingPrivateFile(`${this.databasePath}-wal`);
+    hardenExistingPrivateFile(`${this.databasePath}-shm`);
   }
 
   #assertOpen(): void {
