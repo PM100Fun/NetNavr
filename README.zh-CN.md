@@ -13,9 +13,9 @@
 [![Language: TypeScript](https://img.shields.io/badge/Language-TypeScript-3178c6.svg)](https://www.typescriptlang.org/)
 [![Shell: Electron + React](https://img.shields.io/badge/Shell-Electron_%2B_React-47848f.svg)](./shell)
 [![Status: Pre-alpha](https://img.shields.io/badge/Status-Pre--alpha-f59e0b.svg)](#project-status)
-[![Release](https://img.shields.io/github/v/release/PM100Fun/netnavr?display_name=tag&sort=semver&label=Release)](https://github.com/PM100Fun/netnavr/releases/latest)
-[![CI](https://github.com/PM100Fun/netnavr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PM100Fun/netnavr/actions/workflows/ci.yml)
-[![GitHub stars](https://img.shields.io/github/stars/PM100Fun/netnavr?style=social)](https://github.com/PM100Fun/netnavr/stargazers)
+[![Release](https://img.shields.io/github/v/release/PM100Fun/NetNavr?display_name=tag&sort=semver&label=Release)](https://github.com/PM100Fun/NetNavr/releases/latest)
+[![CI](https://github.com/PM100Fun/NetNavr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PM100Fun/NetNavr/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/PM100Fun/NetNavr?style=social)](https://github.com/PM100Fun/NetNavr/stargazers)
 
 **[English](./README.md)** · **简体中文**
 
@@ -33,7 +33,7 @@
 >
 > **尚未交付：** Navigator 身份、受治理记忆、完整权限执行、切换 Provider 后的连续性、设备配对、备份恢复，以及公开的 Ability 安全模型。
 
-欢迎通过 [GitHub Issues](https://github.com/PM100Fun/netnavr/issues) 提问和反馈。如果你认同这个方向，也欢迎给项目一个 Star。
+欢迎通过 [GitHub Issues](https://github.com/PM100Fun/NetNavr/issues) 提问和反馈。如果你认同这个方向，也欢迎给项目一个 Star。
 
 ---
 
@@ -135,8 +135,8 @@ flowchart LR
 ### 1. 获取代码并验证
 
 ```bash
-git clone https://github.com/PM100Fun/netnavr.git
-cd netnavr
+git clone https://github.com/PM100Fun/NetNavr.git
+cd NetNavr
 npm --prefix shell ci
 npm run verify
 ```
@@ -230,7 +230,7 @@ NetNavr 现阶段最需要可复现的故障报告、小而聚焦的实验，以
 - 项目治理方式见 [GOVERNANCE.md](./GOVERNANCE.md)。
 - 在社区空间遵循 [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)。
 - 不要在公开 Issue 中报告安全漏洞；私密报告方式见 [SECURITY.md](./SECURITY.md)。
-- 已发布版本见 [GitHub Releases](https://github.com/PM100Fun/netnavr/releases)。
+- 已发布版本见 [GitHub Releases](https://github.com/PM100Fun/NetNavr/releases)。
 
 <a id="security"></a>
 
