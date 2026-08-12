@@ -13,9 +13,9 @@
 [![Language: TypeScript](https://img.shields.io/badge/Language-TypeScript-3178c6.svg)](https://www.typescriptlang.org/)
 [![Shell: Electron + React](https://img.shields.io/badge/Shell-Electron_%2B_React-47848f.svg)](./shell)
 [![Status: Pre-alpha](https://img.shields.io/badge/Status-Pre--alpha-f59e0b.svg)](#project-status)
-[![Release](https://img.shields.io/github/v/release/PM100Fun/netnavr?display_name=tag&sort=semver&label=Release)](https://github.com/PM100Fun/netnavr/releases/latest)
-[![CI](https://github.com/PM100Fun/netnavr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PM100Fun/netnavr/actions/workflows/ci.yml)
-[![GitHub stars](https://img.shields.io/github/stars/PM100Fun/netnavr?style=social)](https://github.com/PM100Fun/netnavr/stargazers)
+[![Release](https://img.shields.io/github/v/release/PM100Fun/NetNavr?display_name=tag&sort=semver&label=Release)](https://github.com/PM100Fun/NetNavr/releases/latest)
+[![CI](https://github.com/PM100Fun/NetNavr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PM100Fun/NetNavr/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/PM100Fun/NetNavr?style=social)](https://github.com/PM100Fun/NetNavr/stargazers)
 
 **English** · **[简体中文](./README.zh-CN.md)**
 
@@ -33,7 +33,7 @@
 >
 > **Not yet delivered:** Navigator identity, governed memory, complete permission enforcement, provider-switch continuity, device pairing, backup and restore, or a public Ability security model.
 
-Questions and feedback are welcome in [GitHub Issues](https://github.com/PM100Fun/netnavr/issues). If the direction is useful, consider giving the project a Star.
+Questions and feedback are welcome in [GitHub Issues](https://github.com/PM100Fun/NetNavr/issues). If the direction is useful, consider giving the project a Star.
 
 ---
 
@@ -135,8 +135,8 @@ flowchart LR
 ### 1. Clone and verify
 
 ```bash
-git clone https://github.com/PM100Fun/netnavr.git
-cd netnavr
+git clone https://github.com/PM100Fun/NetNavr.git
+cd NetNavr
 npm --prefix shell ci
 npm run verify
 ```
@@ -230,7 +230,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 - See [GOVERNANCE.md](./GOVERNANCE.md) for project governance.
 - Follow [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) in community spaces.
 - Do not report vulnerabilities in public issues; use the private process in [SECURITY.md](./SECURITY.md).
-- Published versions are listed in [GitHub Releases](https://github.com/PM100Fun/netnavr/releases).
+- Published versions are listed in [GitHub Releases](https://github.com/PM100Fun/NetNavr/releases).
 
 <a id="security"></a>
 
