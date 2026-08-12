@@ -27,7 +27,7 @@ an unrestricted agent runner, or a wrapper around one model provider.
 
 | Area | Responsibility | Verifiable implementation |
 | --- | --- | --- |
-| `core/` | Shared runtime, durable state, identity, governed data, permissions, and ability contracts | Loopback-only daemon; SQLite schema migration v1; persistent Node identity; read-only health and Node endpoints |
+| `core/` | Shared runtime, durable state, identity, governed data, permissions, and ability contracts | Loopback-only daemon; single-owner data directory; SQLite schema migration v1; persistent Node identity; read-only health and Node endpoints |
 | `shell/` | Replaceable human interaction surfaces | Electron/React/TypeScript shell; local server; mock provider and Codex provider integration |
 | `pay/` | Payment-specific behavior kept outside the general runtime | Sandbox SQLite order ledger; idempotent order creation; signed webhook tests |
 
@@ -37,6 +37,17 @@ be inspected through `GET /v1/node`. Storage initialization fails closed when a
 database is corrupt, has inconsistent migration history, or uses a newer schema
 than this Core understands. A missing or invalid stored Node identity is also
 rejected instead of being silently replaced.
+
+For file-backed storage, Core acquires an exclusive runtime lock before opening
+the main database. A second process targeting the same normalized data directory
+fails with the machine-readable code `core_runtime_already_running`; an
+unexpected process exit releases the operating-system lock without replacing
+the database or Node ID. On POSIX systems Core enforces mode `0700` on its data
+directory and `0600` on its database, SQLite sidecars, and runtime lock. Windows
+does not expose equivalent POSIX mode bits, so the current prototype relies on
+the inherited ACL of the selected per-user data directory; a future installer
+must provision and verify an explicit user-only ACL before sensitive data is
+stored.
 
 A Node ID is not a user identity or an authentication credential. **Navigator
 identity, governed memory, permission enforcement, provider-switching
@@ -154,7 +165,7 @@ NetNavr 正在构建一个由用户掌控的个人 AI 连续性底座：身份�
 
 | 区域 | 责任 | 可验证实现 |
 | --- | --- | --- |
-| `core/` | 共享运行时、持久状态、身份、受治理数据、权限与能力契约 | 仅监听本机回环地址的服务；SQLite v1 迁移；持久 Node 身份；只读健康与 Node 接口 |
+| `core/` | 共享运行时、持久状态、身份、受治理数据、权限与能力契约 | 仅监听本机回环地址的服务；数据目录单实例所有权；SQLite v1 迁移；持久 Node 身份；只读健康与 Node 接口 |
 | `shell/` | 可替换的人机交互界面 | Electron/React/TypeScript Shell；本地服务；Mock Provider 与 Codex Provider 接入 |
 | `pay/` | 与通用运行时隔离的支付专属行为 | SQLite 沙盒订单账本；幂等创建订单；签名 Webhook 测试 |
 
@@ -163,6 +174,14 @@ SQLite 中。它在进程重启后保持不变，可通过 `GET /v1/node` 读取
 迁移记录不一致，或数据库版本高于当前 Core 可理解的版本时，启动会明确失败，
 不会静默覆盖或降级数据。已保存的 Node 身份如果缺失或格式无效，也会拒绝启动，
 而不是悄悄换成一个新身份。
+
+对于落盘存储，Core 会在打开主数据库之前取得独占运行时锁。第二个指向同一规范化
+数据目录的进程会以机器可识别的 `core_runtime_already_running` 错误失败；首个进程
+意外退出后，操作系统锁会自动释放，不会替换数据库或 Node ID。在 POSIX 系统上，
+Core 会把数据目录权限设为 `0700`，把数据库、SQLite 辅助文件和运行时锁设为
+`0600`。Windows 没有等价的 POSIX mode 位，因此当前原型依赖所选用户数据目录
+继承到的 ACL；在保存敏感数据之前，未来安装器仍必须显式配置并验证仅当前用户
+可访问的 ACL。
 
 Node ID 不是用户身份，也不是认证凭据。**Navigator 身份、受治理记忆、权限执行、
 切换模型服务商后的连续性、设备配对和备份恢复，目前都尚未完成。**

@@ -13,6 +13,8 @@ import {
   CoreNodeStore,
   type CoreNodeIdentity,
 } from "./node-store.ts";
+import { acquireCoreRuntimeLock, type CoreRuntimeLock } from "./runtime-lock.ts";
+import { prepareCoreStoragePath } from "./storage-permissions.ts";
 
 export const CORE_SERVICE = "netnavr-core";
 export const CORE_API_VERSION = "v1";
@@ -128,7 +130,23 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
   const port = options.port ?? DEFAULT_CORE_PORT;
   validatePort(port);
 
-  const store = new CoreNodeStore(options.databasePath ?? defaultCoreDatabasePath());
+  const requestedDatabasePath = options.databasePath ?? defaultCoreDatabasePath();
+  let runtimeLock: CoreRuntimeLock | undefined;
+  let databasePath = requestedDatabasePath;
+
+  if (requestedDatabasePath !== ":memory:") {
+    const storagePath = prepareCoreStoragePath(requestedDatabasePath);
+    databasePath = storagePath.databasePath;
+    runtimeLock = acquireCoreRuntimeLock(storagePath.dataDirectory);
+  }
+
+  let store: CoreNodeStore;
+  try {
+    store = new CoreNodeStore(databasePath);
+  } catch (error) {
+    runtimeLock?.release();
+    throw error;
+  }
   const node = store.getNodeIdentity();
 
   const startedAt = process.hrtime.bigint();
@@ -139,14 +157,14 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
   try {
     await listen(server, port);
   } catch (error) {
-    store.close();
+    closeRuntimeResources(store, runtimeLock);
     throw error;
   }
 
   const address = server.address();
   if (address === null || typeof address === "string") {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    store.close();
+    closeRuntimeResources(store, runtimeLock);
     throw new Error("core server did not bind to a TCP address");
   }
 
@@ -166,9 +184,9 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
       closePromise = new Promise<void>((resolve, reject) => {
         const finish = (serverError?: Error): void => {
           try {
-            store.close();
-          } catch (storageError) {
-            reject(storageError);
+            closeRuntimeResources(store, runtimeLock);
+          } catch (runtimeError) {
+            reject(runtimeError);
             return;
           }
 
@@ -194,4 +212,38 @@ export async function startCore(options: StartCoreOptions = {}): Promise<Running
   };
 }
 
+function closeRuntimeResources(
+  store: CoreNodeStore,
+  runtimeLock: CoreRuntimeLock | undefined,
+): void {
+  let storageError: unknown;
+  try {
+    store.close();
+  } catch (error) {
+    storageError = error;
+  }
+
+  try {
+    runtimeLock?.release();
+  } catch (lockError) {
+    if (storageError === undefined) {
+      throw lockError;
+    }
+  }
+
+  if (storageError !== undefined) {
+    throw storageError;
+  }
+}
+
+export {
+  CORE_RUNTIME_ALREADY_RUNNING,
+  CORE_RUNTIME_LOCK_FILENAME,
+  CORE_RUNTIME_LOCK_INVALID,
+  CoreRuntimeLockError,
+} from "./runtime-lock.ts";
+export {
+  CORE_PRIVATE_DIRECTORY_MODE,
+  CORE_PRIVATE_FILE_MODE,
+} from "./storage-permissions.ts";
 export { CORE_SCHEMA_VERSION };

@@ -287,8 +287,15 @@ test("the server binds only to loopback and close is idempotent", async () => {
   await assert.rejects(fetch(`${core.origin}/v1/health`));
 });
 
+const signalTestOptions = {
+  skip:
+    process.platform === "win32"
+      ? "Windows child.kill terminates the process instead of delivering POSIX signals"
+      : false,
+};
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  test(`the command exits cleanly after ${signal}`, async () => {
+  test(`the command exits cleanly after ${signal}`, signalTestOptions, async () => {
     const dataDirectory = mkdtempSync(join(tmpdir(), "netnavr-core-command-"));
     const entrypoint = fileURLToPath(new URL("../src/main.ts", import.meta.url));
     const child = spawn(process.execPath, [entrypoint], {
