@@ -89,7 +89,7 @@ The table below describes what can be inspected in the current source tree. Prod
 
 - Provides a testable sandbox payment slice, not production payment infrastructure.
 - Keeps payment behavior separate from Core's shared-runtime responsibilities.
-- Defaults to the same port as Shell (`127.0.0.1:8787`); assign Pay a different port when running both.
+- Accepts only the numeric loopback host `127.0.0.1` and defaults to port `8788`, separate from Shell.
 
 </details>
 
@@ -177,16 +177,9 @@ This starts the local Agent Server and Web interface. When starting the server a
 
 ### 4. Optional: start the Pay sandbox
 
-Shell and Pay use the same default port. Give Pay another loopback port when running both:
+Pay defaults to `127.0.0.1:8788`, so it can run alongside Shell without a port override:
 
 ```bash
-# macOS / Linux
-NETNAVR_PAY_PORT=8788 npm --prefix pay start
-```
-
-```powershell
-# Windows PowerShell
-$env:NETNAVR_PAY_PORT = "8788"
 npm --prefix pay start
 ```
 
@@ -201,7 +194,8 @@ npm --prefix pay start
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core data directory |
 | Shell | `PORT` | `8787` | Local Agent Server port |
 | Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Web client WebSocket URL |
-| Pay | `NETNAVR_PAY_PORT` | `8787` | Pay sandbox port |
+| Pay | `NETNAVR_PAY_HOST` | `127.0.0.1` | Fixed numeric loopback host; other values are rejected |
+| Pay | `NETNAVR_PAY_PORT` | `8788` | Pay sandbox port |
 | Pay | `NETNAVR_PAY_DB_PATH` | `./data/netnavr-pay.sqlite` | Pay sandbox database |
 
 See [`shell/.env.example`](./shell/.env.example) and [`pay/.env.example`](./pay/.env.example) for the current examples.

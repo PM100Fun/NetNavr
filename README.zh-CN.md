@@ -89,7 +89,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 
 - 仅提供可测试的支付沙盒，不是生产支付基础设施。
 - 与 Core 的通用运行时职责保持隔离。
-- 默认与 Shell 使用相同端口（`127.0.0.1:8787`）；同时运行时必须为 Pay 分配其他端口。
+- 仅接受数字回环地址 `127.0.0.1`，并默认使用端口 `8788`，与 Shell 分离。
 
 </details>
 
@@ -177,16 +177,9 @@ npm --prefix shell run dev
 
 ### 4. 可选：启动 Pay 沙盒
 
-Shell 与 Pay 使用相同的默认端口。同时运行时，请为 Pay 指定另一个回环端口：
+Pay 默认使用 `127.0.0.1:8788`，无需修改端口即可与 Shell 同时运行：
 
 ```bash
-# macOS / Linux
-NETNAVR_PAY_PORT=8788 npm --prefix pay start
-```
-
-```powershell
-# Windows PowerShell
-$env:NETNAVR_PAY_PORT = "8788"
 npm --prefix pay start
 ```
 
@@ -201,7 +194,8 @@ npm --prefix pay start
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core 数据目录 |
 | Shell | `PORT` | `8787` | 本地 Agent Server 端口 |
 | Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Web 客户端 WebSocket 地址 |
-| Pay | `NETNAVR_PAY_PORT` | `8787` | Pay 沙盒端口 |
+| Pay | `NETNAVR_PAY_HOST` | `127.0.0.1` | 固定的数字回环地址；其他值会被拒绝 |
+| Pay | `NETNAVR_PAY_PORT` | `8788` | Pay 沙盒端口 |
 | Pay | `NETNAVR_PAY_DB_PATH` | `./data/netnavr-pay.sqlite` | Pay 沙盒数据库 |
 
 当前示例见 [`shell/.env.example`](./shell/.env.example) 与 [`pay/.env.example`](./pay/.env.example)。
