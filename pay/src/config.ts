@@ -1,7 +1,10 @@
 import { AppError } from "./core/errors.ts";
 
+export const DEFAULT_PAY_HOST = "127.0.0.1";
+export const DEFAULT_PAY_PORT = 8788;
+
 export type NetNavrPayConfig = {
-  host: string;
+  host: typeof DEFAULT_PAY_HOST;
   port: number;
   merchantId: string;
   databasePath: string;
@@ -11,7 +14,20 @@ export type NetNavrPayConfig = {
 export function loadConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): NetNavrPayConfig {
-  const port = Number(environment.NETNAVR_PAY_PORT ?? "8787");
+  const host = environment.NETNAVR_PAY_HOST ?? DEFAULT_PAY_HOST;
+  if (host !== DEFAULT_PAY_HOST) {
+    throw new AppError(
+      "INVALID_CONFIG",
+      `NETNAVR_PAY_HOST must be ${DEFAULT_PAY_HOST}`,
+      500,
+    );
+  }
+
+  const rawPort = environment.NETNAVR_PAY_PORT ?? String(DEFAULT_PAY_PORT);
+  if (!/^\d+$/.test(rawPort)) {
+    throw new AppError("INVALID_CONFIG", "NETNAVR_PAY_PORT is invalid", 500);
+  }
+  const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new AppError("INVALID_CONFIG", "NETNAVR_PAY_PORT is invalid", 500);
   }
@@ -32,7 +48,7 @@ export function loadConfig(
   }
 
   return {
-    host: environment.NETNAVR_PAY_HOST ?? "127.0.0.1",
+    host,
     port,
     merchantId,
     databasePath: environment.NETNAVR_PAY_DB_PATH ?? "./data/netnavr-pay.sqlite",
