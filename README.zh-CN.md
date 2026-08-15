@@ -64,7 +64,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；只读健康与 Node 接口 | ✅ `v0.2.0` |
 | [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；本地认证 WebSocket 服务；Mock 与 Codex Provider 路由 | 🚧 原型 |
-| [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；签名 Webhook 测试 | 🧪 仅沙盒 |
+| [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；事件绑定的签名 Webhook | 🧪 仅沙盒 |
 
 <details>
 <summary><b>📦 当前实现边界</b></summary>
@@ -90,6 +90,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 仅提供可测试的支付沙盒，不是生产支付基础设施。
 - 与 Core 的通用运行时职责保持隔离。
 - 仅接受数字回环地址 `127.0.0.1`，并默认使用端口 `8788`，与 Shell 分离。
+- 每个 Webhook 事件 ID 都绑定其原始类型、Channel 与订单；冲突复用会按失败关闭处理。
 
 </details>
 

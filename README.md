@@ -64,7 +64,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; read-only health and Node endpoints | ✅ `v0.2.0` |
 | [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; local authenticated WebSocket server; Mock and Codex provider routing | 🚧 Prototype |
-| [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; signed webhook tests | 🧪 Sandbox only |
+| [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
 <summary><b>📦 Current implementation boundaries</b></summary>
@@ -90,6 +90,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Provides a testable sandbox payment slice, not production payment infrastructure.
 - Keeps payment behavior separate from Core's shared-runtime responsibilities.
 - Accepts only the numeric loopback host `127.0.0.1` and defaults to port `8788`, separate from Shell.
+- Binds every webhook event ID to its original type, channel, and order; conflicting reuse fails closed.
 
 </details>
 

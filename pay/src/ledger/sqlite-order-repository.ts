@@ -30,6 +30,12 @@ type OrderRow = {
   updated_at: string;
 };
 
+type PaymentEventRow = {
+  event_type: string;
+  channel: string;
+  order_id: string;
+};
+
 export class SqliteOrderRepository implements OrderRepository {
   readonly #database: DatabaseSync;
 
@@ -174,7 +180,28 @@ export class SqliteOrderRepository implements OrderRepository {
         );
 
       if (eventResult.changes === 0) {
-        const order = this.#requireOrder(input.orderId);
+        const existingEvent = this.#database
+          .prepare(`
+            SELECT event_type, channel, order_id
+            FROM payment_events
+            WHERE event_id = ?
+          `)
+          .get(input.eventId) as PaymentEventRow | undefined;
+
+        if (
+          !existingEvent ||
+          existingEvent.event_type !== input.eventType ||
+          existingEvent.channel !== input.channel ||
+          existingEvent.order_id !== input.orderId
+        ) {
+          throw new AppError(
+            "PAYMENT_EVENT_CONFLICT",
+            "Payment event ID was already used for a different event",
+            409,
+          );
+        }
+
+        const order = this.#requireOrder(existingEvent.order_id);
         this.#database.exec("COMMIT");
         return { duplicate: true, order };
       }

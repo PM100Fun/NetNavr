@@ -1,6 +1,6 @@
 {
   "name": "netnavr-workspace",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "NetNavr core, shell, and payment module workspace.",
   "engines": {
