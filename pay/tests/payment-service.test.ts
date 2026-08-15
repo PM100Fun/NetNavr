@@ -94,6 +94,89 @@ test("applies a successful payment event exactly once", async (t) => {
   assert.equal(duplicate.order.status, "PAID");
 });
 
+test("rejects a payment event ID reused for another order", async (t) => {
+  const fixture = createFixture();
+  t.after(() => fixture.orders.close());
+
+  const first = await fixture.payments.createOrder(
+    {
+      merchantOrderId: "order_1005_a",
+      amount: 1_000,
+      description: "First webhook order",
+    },
+    "idem-order-1005-a",
+  );
+  const second = await fixture.payments.createOrder(
+    {
+      merchantOrderId: "order_1005_b",
+      amount: 1_500,
+      description: "Second webhook order",
+    },
+    "idem-order-1005-b",
+  );
+
+  fixture.payments.handlePaymentSucceeded({
+    eventId: "evt_shared_1005",
+    channel: "sandbox",
+    orderId: first.order.id,
+    externalId: first.order.externalId!,
+  });
+
+  assert.throws(
+    () =>
+      fixture.payments.handlePaymentSucceeded({
+        eventId: "evt_shared_1005",
+        channel: "sandbox",
+        orderId: second.order.id,
+        externalId: second.order.externalId!,
+      }),
+    (error: unknown) =>
+      error instanceof AppError && error.code === "PAYMENT_EVENT_CONFLICT",
+  );
+  assert.equal(fixture.payments.getOrder(first.order.id).status, "PAID");
+  assert.equal(fixture.payments.getOrder(second.order.id).status, "PENDING");
+});
+
+test("binds a duplicate event ID to its original type and channel", async (t) => {
+  const fixture = createFixture();
+  t.after(() => fixture.orders.close());
+
+  const created = await fixture.payments.createOrder(
+    {
+      merchantOrderId: "order_1006",
+      amount: 2_500,
+      description: "Event identity order",
+    },
+    "idem-order-1006",
+  );
+  const originalEvent = {
+    eventId: "evt_identity_1006",
+    eventType: "payment.succeeded",
+    channel: "sandbox",
+    orderId: created.order.id,
+    nextStatus: "PAID" as const,
+    receivedAt: "2025-06-15T15:06:45.000Z",
+  };
+
+  fixture.orders.applyPaymentEvent(originalEvent);
+
+  for (const conflict of [
+    { eventType: "payment.refunded", channel: "sandbox" },
+    { eventType: "payment.succeeded", channel: "another-channel" },
+  ]) {
+    assert.throws(
+      () =>
+        fixture.orders.applyPaymentEvent({
+          ...originalEvent,
+          ...conflict,
+          receivedAt: "2025-06-15T15:07:45.000Z",
+        }),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "PAYMENT_EVENT_CONFLICT",
+    );
+  }
+});
+
 test("rejects a webhook carrying another payment identifier", async (t) => {
   const fixture = createFixture();
   t.after(() => fixture.orders.close());

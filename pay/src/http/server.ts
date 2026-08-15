@@ -3,6 +3,7 @@ import type { PaymentService } from "../application/payment-service.ts";
 import { AppError, asAppError } from "../core/errors.ts";
 import type { PaymentOrder } from "../core/payment.ts";
 import { verifyWebhookSignature } from "../security/webhook-signature.ts";
+import { PAY_SERVICE_NAME, PAY_SERVICE_VERSION } from "../version.ts";
 
 const MAX_BODY_SIZE = 1_048_576;
 
@@ -39,8 +40,8 @@ async function routeRequest(
 
   if (method === "GET" && url.pathname === "/") {
     sendJson(response, 200, {
-      name: "NetNavr Pay",
-      version: "0.1.0",
+      name: PAY_SERVICE_NAME,
+      version: PAY_SERVICE_VERSION,
       mode: "merchant-owned",
     });
     return;
