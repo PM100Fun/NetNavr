@@ -63,7 +63,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 | 模块 | 职责 | 当前实现 | 状态 |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；只读健康与 Node 接口 | ✅ `v0.2.0` |
-| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；本地认证 WebSocket 服务；Mock 与 Codex Provider 路由 | 🚧 原型 |
+| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；认证回环 WebSocket；沙盒化 Preload 凭据桥；Mock 与 Codex 路由 | 🚧 原型 |
 | [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；事件绑定的签名 Webhook | 🧪 仅沙盒 |
 
 <details>
@@ -83,6 +83,8 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 包含 Web、Electron Desktop、本地 Agent Server、协议、Model Router 与 Codex Client。
 - 本地 WebSocket 会话中的工作区、sandbox 与 approval policy 由服务端控制。
 - 使用 `npm run dev` 时，为服务端与 Web 客户端生成并共享新的本地会话令牌。
+- Electron 自有 Agent Server 使用操作系统分配的回环端口，并通过 context-isolated、sandboxed Preload 桥传递临时连接信息，不再写入 Renderer URL。
+- Renderer 使用限制性 CSP，且只有不含凭据的 HTTPS 外链可以交给操作系统打开。
 - 目前仍是 macOS 优先的交互原型；其他桌面平台尚未达到发布验证标准。
 
 ### Pay
@@ -193,8 +195,8 @@ npm --prefix pay start
 | :--- | :--- | :--- | :--- |
 | Core | `NETNAVR_CORE_PORT` | `8786` | Core 回环端口 |
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core 数据目录 |
-| Shell | `PORT` | `8787` | 本地 Agent Server 端口 |
-| Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Web 客户端 WebSocket 地址 |
+| Shell | `PORT` | `8787` | 独立开发 Agent Server 端口；Electron 使用操作系统分配端口 |
+| Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | 独立开发 Web 客户端 WebSocket 地址 |
 | Pay | `NETNAVR_PAY_HOST` | `127.0.0.1` | 固定的数字回环地址；其他值会被拒绝 |
 | Pay | `NETNAVR_PAY_PORT` | `8788` | Pay 沙盒端口 |
 | Pay | `NETNAVR_PAY_DB_PATH` | `./data/netnavr-pay.sqlite` | Pay 沙盒数据库 |

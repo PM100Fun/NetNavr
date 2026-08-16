@@ -20,3 +20,15 @@ await build({
   },
   logLevel: "info"
 });
+
+await build({
+  entryPoints: [path.join(root, "apps/desktop/src/preload.ts")],
+  outfile: path.join(root, "apps/desktop/dist/preload.cjs"),
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node22",
+  sourcemap: true,
+  external: ["electron"],
+  logLevel: "info"
+});

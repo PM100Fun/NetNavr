@@ -1,12 +1,19 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { startAgentServer, type AgentServerHandle } from "@netnavr/shell-server";
+import {
+  normalizeTrustedExternalUrl,
+  SHELL_CONNECTION_CHANNEL,
+  type ShellConnectionInfo,
+} from "./security.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const rendererPath = path.resolve(__dirname, "../../web/dist/index.html");
+const rendererUrl = pathToFileURL(rendererPath).href;
 
 let mainWindow: BrowserWindow | null = null;
 let agentServer: AgentServerHandle | null = null;
@@ -21,7 +28,7 @@ async function createWindow() {
     await mkdir(workspaceRoot, { recursive: true, mode: 0o700 });
     agentServer = await startAgentServer({
       host: "127.0.0.1",
-      port: 8787,
+      port: 0,
       workspaceRoot
     });
   }
@@ -38,21 +45,55 @@ async function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.cjs"),
       sandbox: true
     }
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openTrustedExternalUrl(url);
     return { action: "deny" };
   });
 
-  const rendererPath = path.resolve(__dirname, "../../web/dist/index.html");
-  const launchParameters = new URLSearchParams({
-    webSocketUrl: agentServer.webSocketUrl,
-    sessionToken: agentServer.sessionToken
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === rendererUrl) return;
+    event.preventDefault();
+    openTrustedExternalUrl(url);
   });
-  await mainWindow.loadFile(rendererPath, { hash: launchParameters.toString() });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
+  await mainWindow.loadFile(rendererPath);
+}
+
+function openTrustedExternalUrl(url: string): void {
+  const trustedUrl = normalizeTrustedExternalUrl(url);
+  if (!trustedUrl) return;
+
+  void shell.openExternal(trustedUrl).catch((error: unknown) => {
+    console.error("Failed to open trusted external URL", error);
+  });
+}
+
+function installShellConnectionBridge() {
+  ipcMain.handle(SHELL_CONNECTION_CHANNEL, (event): ShellConnectionInfo => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame?.url !== rendererUrl ||
+      !agentServer
+    ) {
+      throw new Error("Shell connection information is unavailable");
+    }
+
+    return {
+      webSocketUrl: agentServer.webSocketUrl,
+      sessionToken: agentServer.sessionToken
+    };
+  });
 }
 
 function installMenu() {
@@ -110,6 +151,7 @@ function installMenu() {
 app.setName("NetNavr Shell");
 
 await app.whenReady();
+installShellConnectionBridge();
 installMenu();
 await createWindow();
 
