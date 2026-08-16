@@ -1,6 +1,6 @@
 {
   "name": "netnavr-shell",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A macOS-first interaction shell for the NetNavr local runtime.",
   "author": "The NetNavr Authors",
   "private": true,
@@ -23,7 +23,7 @@
     "dev:web": "npm run dev -w @netnavr/shell-web",
     "start:mac": "npm run build && npm run start -w @netnavr/shell-desktop",
     "pretest": "npm run build:packages",
-    "test": "npm run test -w @netnavr/shell-server"
+    "test": "npm run test -w @netnavr/shell-server && npm run test -w @netnavr/shell-desktop"
   },
   "dependencies": {
     "@openai/codex": "^0.146.0",

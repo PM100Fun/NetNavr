@@ -10,12 +10,12 @@ import {
   type ShellEvent
 } from "@netnavr/shell-protocol";
 
-const launchParameters = new URLSearchParams(window.location.hash.slice(1));
-const wsUrl =
-  import.meta.env.VITE_NETNAVR_SHELL_WS ??
-  launchParameters.get("webSocketUrl") ??
-  "ws://127.0.0.1:8787/ws";
-const sessionToken = import.meta.env.VITE_NETNAVR_SHELL_TOKEN ?? launchParameters.get("sessionToken") ?? "";
+type ShellConnectionInfo = {
+  webSocketUrl: string;
+  sessionToken: string;
+};
+
+const DEFAULT_DEVELOPMENT_WEBSOCKET_URL = "ws://127.0.0.1:8787/ws";
 
 type Line = {
   id: string;
@@ -36,43 +36,58 @@ export function App() {
   const [lines, setLines] = useState<Line[]>([]);
 
   useEffect(() => {
-    if (!sessionToken) {
-      setLines([
-        {
-          id: "missing-session-token",
-          event: { type: "log", level: "error", message: "Missing local session credentials" }
-        }
-      ]);
-      return;
+    let active = true;
+    let socket: WebSocket | null = null;
+
+    async function connect(): Promise<void> {
+      try {
+        const connection = await resolveShellConnection();
+        if (!active) return;
+
+        socket = new WebSocket(connection.webSocketUrl, [
+          SHELL_WEBSOCKET_PROTOCOL,
+          `${SHELL_WEBSOCKET_AUTH_PREFIX}${connection.sessionToken}`
+        ]);
+        socketRef.current = socket;
+
+        socket.onopen = () => {
+          if (active) setConnected(true);
+        };
+        socket.onclose = () => {
+          if (!active) return;
+          setConnected(false);
+          setRunning(false);
+        };
+        socket.onmessage = (message) => {
+          if (!active || typeof message.data !== "string") return;
+
+          let rawEvent: unknown;
+          try {
+            rawEvent = JSON.parse(message.data);
+          } catch {
+            return;
+          }
+
+          const event = parseShellEvent(rawEvent);
+          if (event.ok) receive(event.value);
+        };
+      } catch {
+        if (!active) return;
+        setLines([
+          {
+            id: "missing-session-token",
+            event: { type: "log", level: "error", message: "Unable to initialize local shell connection" }
+          }
+        ]);
+      }
     }
 
-    const socket = new WebSocket(wsUrl, [
-      SHELL_WEBSOCKET_PROTOCOL,
-      `${SHELL_WEBSOCKET_AUTH_PREFIX}${sessionToken}`
-    ]);
-    socketRef.current = socket;
-
-    socket.onopen = () => setConnected(true);
-    socket.onclose = () => {
-      setConnected(false);
-      setRunning(false);
-    };
-    socket.onmessage = (message) => {
-      if (typeof message.data !== "string") return;
-
-      let rawEvent: unknown;
-      try {
-        rawEvent = JSON.parse(message.data);
-      } catch {
-        return;
-      }
-
-      const event = parseShellEvent(rawEvent);
-      if (event.ok) receive(event.value);
-    };
+    void connect();
 
     return () => {
-      socket.close();
+      active = false;
+      if (socketRef.current === socket) socketRef.current = null;
+      socket?.close();
     };
   }, []);
 
@@ -211,6 +226,26 @@ export function App() {
       </section>
     </main>
   );
+}
+
+async function resolveShellConnection(): Promise<ShellConnectionInfo> {
+  const developmentToken = import.meta.env.VITE_NETNAVR_SHELL_TOKEN?.trim();
+  const developmentWebSocketUrl = import.meta.env.VITE_NETNAVR_SHELL_WS?.trim();
+
+  if (developmentToken || developmentWebSocketUrl) {
+    if (!developmentToken) {
+      throw new Error("Missing development shell session token");
+    }
+    return {
+      webSocketUrl: developmentWebSocketUrl || DEFAULT_DEVELOPMENT_WEBSOCKET_URL,
+      sessionToken: developmentToken
+    };
+  }
+
+  if (!window.netnavr) {
+    throw new Error("Shell connection bridge is unavailable");
+  }
+  return window.netnavr.getShellConnection();
 }
 
 function EventRow({ event }: { event: ShellEvent }) {

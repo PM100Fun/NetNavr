@@ -63,7 +63,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | Area | Responsibility | Current implementation | Status |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; read-only health and Node endpoints | ✅ `v0.2.0` |
-| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; local authenticated WebSocket server; Mock and Codex provider routing | 🚧 Prototype |
+| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; authenticated loopback WebSocket; sandboxed preload credential bridge; Mock and Codex routing | 🚧 Prototype |
 | [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
@@ -83,6 +83,8 @@ The table below describes what can be inspected in the current source tree. Prod
 - Contains Web, Electron Desktop, local Agent Server, protocol, model-router, and Codex-client packages.
 - Keeps workspace, sandbox, and approval policy under server control for local WebSocket sessions.
 - Generates and shares a fresh local session token between the server and Web client when using `npm run dev`.
+- Starts the Electron-owned Agent Server on an OS-assigned loopback port and passes its ephemeral connection information through a context-isolated, sandboxed preload bridge instead of the renderer URL.
+- Applies a restrictive renderer CSP and sends only credential-free HTTPS links to the operating system.
 - Remains a macOS-first interaction prototype; other desktop platforms are not release-qualified.
 
 ### Pay
@@ -193,8 +195,8 @@ npm --prefix pay start
 | :--- | :--- | :--- | :--- |
 | Core | `NETNAVR_CORE_PORT` | `8786` | Core loopback port |
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core data directory |
-| Shell | `PORT` | `8787` | Local Agent Server port |
-| Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Web client WebSocket URL |
+| Shell | `PORT` | `8787` | Standalone development Agent Server port; Electron uses an OS-assigned port |
+| Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Standalone development Web client WebSocket URL |
 | Pay | `NETNAVR_PAY_HOST` | `127.0.0.1` | Fixed numeric loopback host; other values are rejected |
 | Pay | `NETNAVR_PAY_PORT` | `8788` | Pay sandbox port |
 | Pay | `NETNAVR_PAY_DB_PATH` | `./data/netnavr-pay.sqlite` | Pay sandbox database |
