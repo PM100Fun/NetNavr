@@ -62,7 +62,7 @@ The table below describes what can be inspected in the current source tree. Prod
 
 | Area | Responsibility | Current implementation | Status |
 | :--- | :--- | :--- | :---: |
-| [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; read-only health and Node endpoints | ✅ `v0.2.0` |
+| [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; bounded read-only API contract | ✅ `v0.2.1` |
 | [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; authenticated loopback WebSocket; sandboxed preload credential bridge; Mock and Codex routing | 🚧 Prototype |
 | [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
@@ -73,6 +73,8 @@ The table below describes what can be inspected in the current source tree. Prod
 
 - Creates a stable, non-secret Node ID for one local installation and persists it in SQLite.
 - Exposes read-only checks through `GET /v1/health` and `GET /v1/node`.
+- Adds a server-generated request ID to every response and includes it in structured error envelopes.
+- Rejects request bodies, unsupported methods on known routes, and headers above the Core limit; applies bounded header, request, and keep-alive timeouts.
 - Fails closed on database corruption, migration-history mismatch, a newer schema version, or an invalid Node ID.
 - Acquires an exclusive runtime lock before opening the primary database.
 - Preserves the database and Node ID after unexpected process termination.
@@ -209,7 +211,7 @@ See [`shell/.env.example`](./shell/.env.example) and [`pay/.env.example`](./pay/
 
 | Stage | Proof target | Status |
 | :--- | :--- | :---: |
-| **Local foundation** | Loopback Core, SQLite v1, persistent Node ID, single-owner storage, restrictive file permissions | ✅ Verified |
+| **Local foundation** | Loopback Core, SQLite v1, persistent Node ID, single-owner storage, restrictive file permissions, bounded read-only HTTP | ✅ Verified |
 | **Interaction prototype** | Web / Electron Shell, authenticated local WebSocket, Mock / Codex provider routing | 🚧 Prototype |
 | **Identity and memory** | Navigator identity plus governed memory with provenance and confirmation state | ⏭️ Next |
 | **Ability boundary** | One low-risk Ability with explicit permissions and structured results | ⬜ Not complete |
@@ -234,6 +236,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 ## 🔐 Security boundaries
 
 - Core is fixed to the local loopback interface; do not expose the current prototype through a proxy or port forward.
+- Core accepts no request bodies while its HTTP surface remains read-only; request IDs are diagnostic correlation values, not authentication credentials.
 - Windows currently relies on inherited ACLs for the user data directory; a future installer still needs to configure and verify current-user-only ACLs explicitly.
 - `pay/` is a sandbox and must not process real funds.
 - Integrations involving important data, credentials, or irreversible actions should wait for the permission model.

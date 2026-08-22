@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,6 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   CORE_API_VERSION,
+  CORE_MAX_HEADER_BYTES,
   CORE_SCHEMA_VERSION,
   CORE_HOST,
   CORE_SERVICE,
@@ -16,6 +18,8 @@ import {
   startCore,
   type RunningCore,
 } from "../src/server.ts";
+
+const CORE_REQUEST_ID_PATTERN = /^req_[0-9a-f-]{36}$/;
 
 async function withCore(run: (core: RunningCore) => Promise<void>): Promise<void> {
   const core = await startCore({ port: 0, databasePath: ":memory:" });
@@ -33,6 +37,8 @@ test("GET /v1/health returns the stable health contract", async () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
     assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.match(response.headers.get("x-request-id") ?? "", CORE_REQUEST_ID_PATTERN);
 
     const payload = (await response.json()) as Record<string, unknown>;
     assert.deepEqual(Object.keys(payload), [
@@ -264,14 +270,74 @@ test("Core rejects a corrupt database without replacing it", async () => {
 test("unknown routes return a structured 404", async () => {
   await withCore(async (core) => {
     const response = await fetch(`${core.origin}/not-a-route`);
+    const requestId = response.headers.get("x-request-id");
 
     assert.equal(response.status, 404);
+    assert.match(requestId ?? "", CORE_REQUEST_ID_PATTERN);
     assert.deepEqual(await response.json(), {
       error: {
         code: "not_found",
         message: "Route not found",
       },
+      requestId,
     });
+  });
+});
+
+test("known read-only routes reject unsupported methods", async () => {
+  await withCore(async (core) => {
+    const response = await fetch(`${core.origin}/v1/health`, { method: "POST" });
+    const requestId = response.headers.get("x-request-id");
+
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("allow"), "GET");
+    assert.match(requestId ?? "", CORE_REQUEST_ID_PATTERN);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: "method_not_allowed",
+        message: "Method not allowed",
+      },
+      requestId,
+    });
+  });
+});
+
+test("the read-only API rejects request bodies and closes the connection", async () => {
+  await withCore(async (core) => {
+    const response = await fetch(`${core.origin}/v1/health`, {
+      method: "POST",
+      body: "unexpected",
+    });
+    const requestId = response.headers.get("x-request-id");
+
+    assert.equal(response.status, 413);
+    assert.equal(response.headers.get("connection"), "close");
+    assert.match(requestId ?? "", CORE_REQUEST_ID_PATTERN);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: "request_body_not_allowed",
+        message: "Core read-only API does not accept request bodies",
+      },
+      requestId,
+    });
+  });
+});
+
+test("the HTTP parser rejects headers above the Core limit", async () => {
+  await withCore(async (core) => {
+    const response = await sendRawHttpRequest(
+      core.port,
+      [
+        "GET /v1/health HTTP/1.1",
+        `Host: ${CORE_HOST}:${core.port}`,
+        `X-Oversized: ${"a".repeat(CORE_MAX_HEADER_BYTES)}`,
+        "Connection: close",
+        "",
+        "",
+      ].join("\r\n"),
+    );
+
+    assert.match(response, /^HTTP\/1\.1 431 /);
   });
 });
 
@@ -286,6 +352,22 @@ test("the server binds only to loopback and close is idempotent", async () => {
 
   await assert.rejects(fetch(`${core.origin}/v1/health`));
 });
+
+async function sendRawHttpRequest(port: number, request: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const socket = connect({ host: CORE_HOST, port }, () => {
+      socket.end(request);
+    });
+    let response = "";
+
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      response += chunk;
+    });
+    socket.once("error", reject);
+    socket.once("end", () => resolve(response));
+  });
+}
 
 const signalTestOptions = {
   skip:
