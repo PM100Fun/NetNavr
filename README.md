@@ -63,7 +63,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | Area | Responsibility | Current implementation | Status |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; bounded read-only API contract | ✅ `v0.2.1` |
-| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; authenticated loopback WebSocket; sandboxed preload credential bridge; Mock and Codex routing | 🚧 Prototype |
+| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; authenticated loopback WebSocket; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
 | [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
@@ -87,6 +87,8 @@ The table below describes what can be inspected in the current source tree. Prod
 - Generates and shares a fresh local session token between the server and Web client when using `npm run dev`.
 - Starts the Electron-owned Agent Server on an OS-assigned loopback port and passes its ephemeral connection information through a context-isolated, sandboxed preload bridge instead of the renderer URL.
 - Applies a restrictive renderer CSP and sends only credential-free HTTPS links to the operating system.
+- Reads Core health, version, API version, and persistent Node ID through the trusted Electron bridge; the Renderer does not contact Core directly or retain an authoritative identity copy.
+- Distinguishes offline, timeout, incompatible, HTTP, and invalid-response states while enforcing numeric loopback, a two-second total timeout, and a 16 KiB response ceiling.
 - Remains a macOS-first interaction prototype; other desktop platforms are not release-qualified.
 
 ### Pay
@@ -119,6 +121,7 @@ flowchart LR
     S --> S1["Web + Electron"]
     S --> S2["Local authenticated WebSocket"]
     S --> S3["Mock / Codex providers"]
+    S --> S4["Read-only Core / Node status"]
 
     P --> P1["Sandbox ledger"]
     P --> P2["Idempotency + signed webhook"]
@@ -180,6 +183,14 @@ npm --prefix shell run dev
 
 This starts the local Agent Server and Web interface. When starting the server and Web client separately, provide the same fresh token to both sides as documented in [`shell/.env.example`](./shell/.env.example).
 
+The standalone Web development interface intentionally has no direct Core access. On macOS, start the Electron Shell to use the trusted read-only Node Status bridge:
+
+```bash
+npm --prefix shell run dev:mac
+```
+
+Start Core first. Node Status displays Core/API versions, schema, uptime, the persistent Node ID, and its creation time without reading `core.sqlite`.
+
 ### 4. Optional: start the Pay sandbox
 
 Pay defaults to `127.0.0.1:8788`, so it can run alongside Shell without a port override:
@@ -195,7 +206,7 @@ npm --prefix pay start
 
 | Component | Variable | Default | Purpose |
 | :--- | :--- | :--- | :--- |
-| Core | `NETNAVR_CORE_PORT` | `8786` | Core loopback port |
+| Core | `NETNAVR_CORE_PORT` | `8786` | Core loopback port; the Electron Node Status bridge consumes the same validated value |
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core data directory |
 | Shell | `PORT` | `8787` | Standalone development Agent Server port; Electron uses an OS-assigned port |
 | Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Standalone development Web client WebSocket URL |
@@ -212,7 +223,7 @@ See [`shell/.env.example`](./shell/.env.example) and [`pay/.env.example`](./pay/
 | Stage | Proof target | Status |
 | :--- | :--- | :---: |
 | **Local foundation** | Loopback Core, SQLite v1, persistent Node ID, single-owner storage, restrictive file permissions, bounded read-only HTTP | ✅ Verified |
-| **Interaction prototype** | Web / Electron Shell, authenticated local WebSocket, Mock / Codex provider routing | 🚧 Prototype |
+| **Interaction prototype** | Web / Electron Shell, authenticated local WebSocket, read-only Core / Node status, Mock / Codex provider routing | 🚧 Prototype |
 | **Identity and memory** | Navigator identity plus governed memory with provenance and confirmation state | ⏭️ Next |
 | **Ability boundary** | One low-risk Ability with explicit permissions and structured results | ⬜ Not complete |
 | **Continuity proof** | Switch providers without losing identity or confirmed memory | ⬜ Not complete |
@@ -237,6 +248,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 
 - Core is fixed to the local loopback interface; do not expose the current prototype through a proxy or port forward.
 - Core accepts no request bodies while its HTTP surface remains read-only; request IDs are diagnostic correlation values, not authentication credentials.
+- Shell reads Core status only through its trusted Electron bridge and never treats the displayed Node ID as a user identity or authentication credential.
 - Windows currently relies on inherited ACLs for the user data directory; a future installer still needs to configure and verify current-user-only ACLs explicitly.
 - `pay/` is a sandbox and must not process real funds.
 - Integrations involving important data, credentials, or irreversible actions should wait for the permission model.

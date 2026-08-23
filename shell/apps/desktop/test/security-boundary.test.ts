@@ -14,6 +14,10 @@ const webAppSource = readFileSync(
   new URL("../../web/src/App.tsx", import.meta.url),
   "utf8",
 );
+const preloadSource = readFileSync(
+  new URL("../src/preload.ts", import.meta.url),
+  "utf8",
+);
 const webIndexSource = readFileSync(
   new URL("../../web/index.html", import.meta.url),
   "utf8",
@@ -24,7 +28,7 @@ test("desktop connection credentials stay out of renderer URLs", () => {
   assert.doesNotMatch(desktopMainSource, /loadFile\([^)]*,\s*{\s*hash:/);
   assert.doesNotMatch(webAppSource, /window\.location\.hash/);
   assert.match(desktopMainSource, /preload:/);
-  assert.match(desktopMainSource, /event\.senderFrame\?\.url !== rendererUrl/);
+  assert.match(desktopMainSource, /event\.senderFrame\?\.url === rendererUrl/);
 });
 
 test("desktop uses an OS-assigned loopback port", () => {
@@ -77,4 +81,14 @@ test("external navigation accepts credential-free HTTPS URLs only", () => {
   ]) {
     assert.equal(normalizeTrustedExternalUrl(url), null);
   }
+});
+
+test("Core status stays behind the trusted preload bridge", () => {
+  assert.match(desktopMainSource, /fetchConfiguredCoreStatus/);
+  assert.match(desktopMainSource, /isTrustedRenderer\(event\)/);
+  assert.match(preloadSource, /getCoreStatus/);
+  assert.match(preloadSource, /parseCoreStatusResult/);
+  assert.match(webAppSource, /window\.netnavr\.getCoreStatus/);
+  assert.doesNotMatch(webAppSource, /127\.0\.0\.1:8786/);
+  assert.doesNotMatch(webAppSource, /\/v1\/(?:health|node)/);
 });

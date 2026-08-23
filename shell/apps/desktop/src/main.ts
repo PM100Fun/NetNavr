@@ -2,8 +2,20 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  shell,
+  type IpcMainInvokeEvent,
+} from "electron";
 import { startAgentServer, type AgentServerHandle } from "@netnavr/shell-server";
+import {
+  CORE_STATUS_CHANNEL,
+  fetchConfiguredCoreStatus,
+  type CoreStatusResult,
+} from "./core-status.js";
 import {
   normalizeTrustedExternalUrl,
   SHELL_CONNECTION_CHANNEL,
@@ -77,13 +89,10 @@ function openTrustedExternalUrl(url: string): void {
   });
 }
 
-function installShellConnectionBridge() {
+function installDesktopBridges() {
   ipcMain.handle(SHELL_CONNECTION_CHANNEL, (event): ShellConnectionInfo => {
     if (
-      !mainWindow ||
-      mainWindow.isDestroyed() ||
-      event.sender !== mainWindow.webContents ||
-      event.senderFrame?.url !== rendererUrl ||
+      !isTrustedRenderer(event) ||
       !agentServer
     ) {
       throw new Error("Shell connection information is unavailable");
@@ -94,6 +103,23 @@ function installShellConnectionBridge() {
       sessionToken: agentServer.sessionToken
     };
   });
+
+  ipcMain.handle(CORE_STATUS_CHANNEL, async (event): Promise<CoreStatusResult> => {
+    if (!isTrustedRenderer(event)) {
+      throw new Error("Core status is unavailable");
+    }
+
+    return fetchConfiguredCoreStatus(process.env.NETNAVR_CORE_PORT);
+  });
+}
+
+function isTrustedRenderer(event: IpcMainInvokeEvent): boolean {
+  return (
+    mainWindow !== null &&
+    !mainWindow.isDestroyed() &&
+    event.sender === mainWindow.webContents &&
+    event.senderFrame?.url === rendererUrl
+  );
 }
 
 function installMenu() {
@@ -151,7 +177,7 @@ function installMenu() {
 app.setName("NetNavr Shell");
 
 await app.whenReady();
-installShellConnectionBridge();
+installDesktopBridges();
 installMenu();
 await createWindow();
 

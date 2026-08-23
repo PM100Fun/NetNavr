@@ -89,6 +89,7 @@ textarea {
 
 .leftpane {
   border-right: 1px solid #d9dfd8;
+  overflow: auto;
 }
 
 .rightpane {
@@ -163,6 +164,132 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.core-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid #d7ded7;
+  border-radius: 9px;
+  padding: 11px;
+  background: #ffffff;
+}
+
+.core-card-head,
+.core-card-head > div {
+  display: flex;
+  align-items: center;
+}
+
+.core-card-head {
+  justify-content: space-between;
+}
+
+.core-card-head > div {
+  gap: 7px;
+  color: #334038;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.icon-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: #d3dbd4;
+  background: #f7f9f7;
+}
+
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+.core-state {
+  width: fit-content;
+  border: 1px solid #d7ddd6;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #66716a;
+  background: #f7f9f7;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.core-state.core-online {
+  color: #116347;
+  border-color: #a8d8c8;
+  background: #edf9f4;
+}
+
+.core-state.core-incompatible,
+.core-state.core-error {
+  color: #7a4f00;
+  border-color: #efd08b;
+  background: #fff8e8;
+}
+
+.core-state.core-offline {
+  color: #8b2d2d;
+  border-color: #e3b2b2;
+  background: #fff1f1;
+}
+
+.core-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.core-details > div {
+  min-width: 0;
+}
+
+.core-details dt {
+  color: #768078;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.core-details dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #2f3a33;
+  font-size: 12px;
+}
+
+.core-details .core-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.core-message {
+  display: grid;
+  gap: 4px;
+  color: #606b64;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.core-message strong {
+  color: #3d4841;
+  text-transform: capitalize;
+}
+
+.core-message small {
+  overflow-wrap: anywhere;
+  color: #89918c;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .composer {

@@ -63,7 +63,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 | 模块 | 职责 | 当前实现 | 状态 |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；有界只读 API 契约 | ✅ `v0.2.1` |
-| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；认证回环 WebSocket；沙盒化 Preload 凭据桥；Mock 与 Codex 路由 | 🚧 原型 |
+| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；认证回环 WebSocket；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
 | [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；事件绑定的签名 Webhook | 🧪 仅沙盒 |
 
 <details>
@@ -87,6 +87,8 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 使用 `npm run dev` 时，为服务端与 Web 客户端生成并共享新的本地会话令牌。
 - Electron 自有 Agent Server 使用操作系统分配的回环端口，并通过 context-isolated、sandboxed Preload 桥传递临时连接信息，不再写入 Renderer URL。
 - Renderer 使用限制性 CSP，且只有不含凭据的 HTTPS 外链可以交给操作系统打开。
+- 通过受信任 Electron 桥读取 Core 健康、版本、API 版本与持久 Node ID；Renderer 不直接访问 Core，也不保存权威身份副本。
+- 区分离线、超时、不兼容、HTTP 和无效响应状态，同时限制为数字回环地址、两秒总超时和 16 KiB 响应上限。
 - 目前仍是 macOS 优先的交互原型；其他桌面平台尚未达到发布验证标准。
 
 ### Pay
@@ -119,6 +121,7 @@ flowchart LR
     S --> S1["Web + Electron"]
     S --> S2["本地认证 WebSocket"]
     S --> S3["Mock / Codex Provider"]
+    S --> S4["只读 Core / Node 状态"]
 
     P --> P1["沙盒账本"]
     P --> P2["幂等 + 签名 Webhook"]
@@ -180,6 +183,14 @@ npm --prefix shell run dev
 
 该命令会启动本地 Agent Server 与 Web 界面。如果分别启动服务端和 Web 客户端，请按照 [`shell/.env.example`](./shell/.env.example) 为两端提供同一个新的令牌。
 
+独立 Web 开发界面刻意不直接访问 Core。在 macOS 上，使用 Electron Shell 的受信任只读 Node Status 桥：
+
+```bash
+npm --prefix shell run dev:mac
+```
+
+请先启动 Core。Node Status 会展示 Core/API 版本、schema、运行时长、持久 Node ID 及其创建时间，但不会读取 `core.sqlite`。
+
 ### 4. 可选：启动 Pay 沙盒
 
 Pay 默认使用 `127.0.0.1:8788`，无需修改端口即可与 Shell 同时运行：
@@ -195,7 +206,7 @@ npm --prefix pay start
 
 | 组件 | 配置项 | 默认值 | 用途 |
 | :--- | :--- | :--- | :--- |
-| Core | `NETNAVR_CORE_PORT` | `8786` | Core 回环端口 |
+| Core | `NETNAVR_CORE_PORT` | `8786` | Core 回环端口；Electron Node Status 桥使用同一个经过校验的值 |
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core 数据目录 |
 | Shell | `PORT` | `8787` | 独立开发 Agent Server 端口；Electron 使用操作系统分配端口 |
 | Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | 独立开发 Web 客户端 WebSocket 地址 |
@@ -212,7 +223,7 @@ npm --prefix pay start
 | 阶段 | 验证目标 | 状态 |
 | :--- | :--- | :---: |
 | **本地基础** | 回环 Core、SQLite v1、持久 Node ID、单实例存储、限制性文件权限与有界只读 HTTP | ✅ 已验证 |
-| **交互原型** | Web / Electron Shell、本地认证 WebSocket、Mock / Codex Provider 路由 | 🚧 原型 |
+| **交互原型** | Web / Electron Shell、本地认证 WebSocket、只读 Core / Node 状态、Mock / Codex Provider 路由 | 🚧 原型 |
 | **身份与记忆** | Navigator 身份、带来源与确认状态的受治理记忆 | ⏭️ 下一阶段 |
 | **能力边界** | 一个低风险 Ability、明确权限与结构化结果 | ⬜ 未完成 |
 | **连续性证明** | 切换 Provider 后身份与已确认记忆不丢失 | ⬜ 未完成 |
@@ -237,6 +248,7 @@ NetNavr 现阶段最需要可复现的故障报告、小而聚焦的实验，以
 
 - Core 固定监听本机回环地址；不要通过代理或端口转发把当前原型暴露到公网。
 - Core 的 HTTP 表面保持只读时不接受任何请求体；请求 ID 只用于诊断关联，不是认证凭据。
+- Shell 只通过受信任 Electron 桥读取 Core 状态，且不会把展示的 Node ID 当作用户身份或认证凭据。
 - Windows 当前依赖用户数据目录继承的 ACL；未来安装器仍需显式配置并验证只有当前用户可访问的 ACL。
 - `pay/` 仅用于沙盒验证，不得处理真实资金。
 - 任何涉及重要数据、凭据或不可逆操作的集成都应等待权限模型完成。
