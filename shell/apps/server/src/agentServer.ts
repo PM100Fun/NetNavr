@@ -7,13 +7,15 @@ import { CodexAgent } from "@netnavr/shell-codex-client";
 import { MockAgent, ModelRouter } from "@netnavr/shell-model-router";
 import {
   parseClientMessage,
+  SHELL_PROTOCOL_VERSION,
   SHELL_WEBSOCKET_AUTH_PREFIX,
   SHELL_WEBSOCKET_PROTOCOL,
   type ApprovalPolicy,
   type ClientMessage,
   type RunRequest,
   type SandboxMode,
-  type ShellEvent
+  type ShellEvent,
+  type ShellRunId
 } from "@netnavr/shell-protocol";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 
@@ -95,8 +97,13 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   });
 
   wss.on("connection", (socket) => {
-    let activeAbort: AbortController | null = null;
-    send(socket, { type: "shell.ready", providers: router.providers(), workspace: workspaceRoot });
+    let activeRun: ActiveRun | null = null;
+    send(socket, {
+      type: "shell.ready",
+      protocolVersion: SHELL_PROTOCOL_VERSION,
+      providers: router.providers(),
+      workspace: workspaceRoot
+    });
 
     socket.on("message", (data, isBinary) => {
       if (isBinary) {
@@ -105,9 +112,9 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
       }
 
       void handleClientMessage(data, socket, {
-        getActiveAbort: () => activeAbort,
-        setActiveAbort: (controller) => {
-          activeAbort = controller;
+        getActiveRun: () => activeRun,
+        setActiveRun: (run) => {
+          activeRun = run;
         },
         router,
         workspaceRoot,
@@ -123,13 +130,13 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
     });
 
     socket.on("close", () => {
-      activeAbort?.abort();
-      activeAbort = null;
+      activeRun?.controller.abort();
+      activeRun = null;
     });
 
     socket.on("error", () => {
-      activeAbort?.abort();
-      activeAbort = null;
+      activeRun?.controller.abort();
+      activeRun = null;
     });
   });
 
@@ -162,9 +169,14 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   };
 }
 
+type ActiveRun = {
+  runId: ShellRunId;
+  controller: AbortController;
+};
+
 type MessageContext = {
-  getActiveAbort: () => AbortController | null;
-  setActiveAbort: (controller: AbortController | null) => void;
+  getActiveRun: () => ActiveRun | null;
+  setActiveRun: (run: ActiveRun | null) => void;
   router: ModelRouter;
   workspaceRoot: string;
   sandboxMode: SandboxMode;
@@ -188,43 +200,83 @@ async function handleClientMessage(data: RawData, socket: WebSocket, context: Me
 
   const message: ClientMessage = parsed.value;
   if (message.type === "cancel") {
-    context.getActiveAbort()?.abort();
-    context.setActiveAbort(null);
-    send(socket, { type: "log", level: "warn", message: "Turn cancelled" });
+    const activeRun = context.getActiveRun();
+    if (!activeRun || activeRun.runId !== message.runId) {
+      send(socket, { type: "cancel.rejected", runId: message.runId, reason: "run_not_active" });
+      return;
+    }
+
+    activeRun.controller.abort();
     return;
   }
 
-  context.getActiveAbort()?.abort();
+  if (context.getActiveRun()) {
+    send(socket, { type: "run.rejected", requestId: message.requestId, reason: "run_in_progress" });
+    return;
+  }
+
+  const runId = createRunId();
   const activeAbort = new AbortController();
-  context.setActiveAbort(activeAbort);
+  context.setActiveRun({ runId, controller: activeAbort });
 
   const request: RunRequest = {
+    runId,
     ...message.request,
     cwd: context.workspaceRoot,
     sandboxMode: context.sandboxMode,
     approvalPolicy: context.approvalPolicy
   };
-  const runId = randomUUID();
 
   send(socket, {
-    type: "log",
-    level: "info",
-    message: `Run ${runId} routed to ${request.provider}`
+    type: "run.started",
+    requestId: message.requestId,
+    runId,
+    provider: request.provider
   });
 
+  let sawTerminalEvent = false;
   try {
     for await (const event of context.router.run(request, activeAbort.signal)) {
+      if (activeAbort.signal.aborted) break;
       send(socket, event);
+      if (event.type === "turn.completed" || event.type === "turn.failed") {
+        sawTerminalEvent = true;
+        if (context.getActiveRun()?.runId === runId) {
+          context.setActiveRun(null);
+        }
+        break;
+      }
+    }
+
+    if (!activeAbort.signal.aborted && !sawTerminalEvent) {
+      send(socket, {
+        type: "turn.failed",
+        runId,
+        provider: request.provider,
+        error: "Agent run ended without a terminal event"
+      });
     }
   } catch (error) {
-    send(socket, {
-      type: "turn.failed",
-      provider: request.provider,
-      error: error instanceof Error ? error.message : "Agent run failed"
-    });
+    if (!activeAbort.signal.aborted) {
+      send(socket, {
+        type: "turn.failed",
+        runId,
+        provider: request.provider,
+        error: error instanceof Error ? error.message : "Agent run failed"
+      });
+    }
   } finally {
-    if (context.getActiveAbort() === activeAbort) context.setActiveAbort(null);
+    if (context.getActiveRun()?.runId === runId) {
+      if (activeAbort.signal.aborted) {
+        send(socket, { type: "run.cancelled", runId });
+      }
+      context.setActiveRun(null);
+    }
   }
+}
+
+function createRunId(): ShellRunId {
+  return `run_${randomUUID()}`;
 }
 
 function normalizeLoopbackHost(host: string | undefined): string {
