@@ -22,6 +22,7 @@ export class CodexAgent implements RoutedAgent {
 
     yield {
       type: "log",
+      runId: request.runId,
       level: "info",
       message: "Starting Codex turn"
     };
@@ -38,6 +39,7 @@ export class CodexAgent implements RoutedAgent {
     } catch (error) {
       yield {
         type: "turn.failed",
+        runId: request.runId,
         provider: this.provider,
         error: error instanceof Error ? error.message : String(error)
       };
@@ -68,6 +70,7 @@ function mapCodexEvent(rawEvent: unknown, request: RunRequest, currentThreadId: 
     return [
       {
         type: "thread.started",
+        runId: request.runId,
         provider: "codex",
         threadId: String(event.thread_id ?? currentThreadId ?? "")
       }
@@ -75,13 +78,14 @@ function mapCodexEvent(rawEvent: unknown, request: RunRequest, currentThreadId: 
   }
 
   if (type === "turn.started") {
-    return [{ type: "turn.started", provider: "codex", threadId: currentThreadId }];
+    return [{ type: "turn.started", runId: request.runId, provider: "codex", threadId: currentThreadId }];
   }
 
   if (type === "turn.completed") {
     return [
       {
         type: "turn.completed",
+        runId: request.runId,
         provider: "codex",
         threadId: currentThreadId,
         usage: mapUsage(event.usage)
@@ -94,6 +98,7 @@ function mapCodexEvent(rawEvent: unknown, request: RunRequest, currentThreadId: 
     return [
       {
         type: "turn.failed",
+        runId: request.runId,
         provider: "codex",
         error: error?.message ?? "Codex turn failed"
       }
@@ -105,6 +110,7 @@ function mapCodexEvent(rawEvent: unknown, request: RunRequest, currentThreadId: 
     const events: ShellEvent[] = [
       {
         type,
+        runId: request.runId,
         provider: "codex",
         item
       }
@@ -113,6 +119,7 @@ function mapCodexEvent(rawEvent: unknown, request: RunRequest, currentThreadId: 
     if (type === "item.completed" && item.type === "agent_message" && item.text) {
       events.push({
         type: "agent.delta",
+        runId: request.runId,
         provider: "codex",
         text: item.text
       });
@@ -124,6 +131,7 @@ function mapCodexEvent(rawEvent: unknown, request: RunRequest, currentThreadId: 
   return [
     {
       type: "log",
+      runId: request.runId,
       level: "info",
       message: `Codex event: ${type || "unknown"}`
     }

@@ -6,6 +6,10 @@ export type ApprovalPolicy = "untrusted" | "on-request" | "never";
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export type ShellRequestId = `req_${string}`;
+
+export type ShellRunId = `run_${string}`;
+
 export type Usage = {
   inputTokens: number;
   cachedInputTokens: number;
@@ -14,6 +18,7 @@ export type Usage = {
 };
 
 export type RunRequest = {
+  runId: ShellRunId;
   provider: AgentProvider;
   prompt: string;
   threadId?: string | null;
@@ -41,42 +46,70 @@ export type AgentItem = {
 export type ShellEvent =
   | {
       type: "shell.ready";
+      protocolVersion: typeof SHELL_PROTOCOL_VERSION;
       providers: AgentProvider[];
       workspace: string;
     }
   | {
+      type: "run.started";
+      requestId: ShellRequestId;
+      runId: ShellRunId;
+      provider: AgentProvider;
+    }
+  | {
+      type: "run.rejected";
+      requestId: ShellRequestId;
+      reason: "run_in_progress";
+    }
+  | {
+      type: "cancel.rejected";
+      runId: ShellRunId;
+      reason: "run_not_active";
+    }
+  | {
+      type: "run.cancelled";
+      runId: ShellRunId;
+    }
+  | {
       type: "thread.started";
+      runId: ShellRunId;
       provider: AgentProvider;
       threadId: string;
     }
   | {
       type: "turn.started";
+      runId: ShellRunId;
       provider: AgentProvider;
       threadId?: string | null;
     }
   | {
       type: "item.started" | "item.updated" | "item.completed";
+      runId: ShellRunId;
       provider: AgentProvider;
       item: AgentItem;
     }
   | {
       type: "agent.delta";
+      runId: ShellRunId;
       provider: AgentProvider;
       text: string;
     }
   | {
       type: "turn.completed";
+      runId: ShellRunId;
       provider: AgentProvider;
       threadId?: string | null;
       usage?: Usage | null;
     }
   | {
       type: "turn.failed";
+      runId: ShellRunId;
       provider: AgentProvider;
       error: string;
     }
   | {
       type: "log";
+      runId?: ShellRunId;
       level: "info" | "warn" | "error";
       message: string;
     };
@@ -84,13 +117,16 @@ export type ShellEvent =
 export type ClientMessage =
   | {
       type: "run";
+      requestId: ShellRequestId;
       request: ClientRunRequest;
     }
   | {
       type: "cancel";
+      runId: ShellRunId;
     };
 
-export const SHELL_WEBSOCKET_PROTOCOL = "netnavr-shell-v1";
+export const SHELL_PROTOCOL_VERSION = 2 as const;
+export const SHELL_WEBSOCKET_PROTOCOL = `netnavr-shell-v${SHELL_PROTOCOL_VERSION}`;
 export const SHELL_WEBSOCKET_AUTH_PREFIX = "netnavr-shell-auth.";
 
 export type ParseResult<T> =
@@ -107,6 +143,8 @@ const agentProviders = new Set<AgentProvider>(["mock", "codex"]);
 const reasoningEfforts = new Set<ReasoningEffort>(["minimal", "low", "medium", "high", "xhigh"]);
 const itemStatuses = new Set<NonNullable<AgentItem["status"]>>(["inProgress", "completed", "failed"]);
 const logLevels = new Set(["info", "warn", "error"] as const);
+const requestIdPattern = /^req_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const runIdPattern = /^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function parseClientMessage(value: unknown): ParseResult<ClientMessage> {
   if (!isRecord(value) || typeof value.type !== "string") {
@@ -114,11 +152,18 @@ export function parseClientMessage(value: unknown): ParseResult<ClientMessage> {
   }
 
   if (value.type === "cancel") {
-    if (!hasOnlyKeys(value, ["type"])) return invalid("Cancel message contains unsupported fields");
-    return { ok: true, value: { type: "cancel" } };
+    if (!hasOnlyKeys(value, ["type", "runId"]) || !isRunId(value.runId)) {
+      return invalid("Cancel message must target a valid run ID");
+    }
+    return { ok: true, value: { type: "cancel", runId: value.runId } };
   }
 
-  if (value.type !== "run" || !hasOnlyKeys(value, ["type", "request"]) || !isRecord(value.request)) {
+  if (
+    value.type !== "run" ||
+    !hasOnlyKeys(value, ["type", "requestId", "request"]) ||
+    !isRequestId(value.requestId) ||
+    !isRecord(value.request)
+  ) {
     return invalid("Unsupported client message");
   }
 
@@ -140,6 +185,7 @@ export function parseClientMessage(value: unknown): ParseResult<ClientMessage> {
     ok: true,
     value: {
       type: "run",
+      requestId: value.requestId,
       request: {
         provider: request.provider,
         prompt: request.prompt,
@@ -157,42 +203,97 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
   }
 
   if (value.type === "shell.ready") {
-    if (!Array.isArray(value.providers) || !value.providers.every(isAgentProvider) || typeof value.workspace !== "string") {
+    if (
+      value.protocolVersion !== SHELL_PROTOCOL_VERSION ||
+      !Array.isArray(value.providers) ||
+      !value.providers.every(isAgentProvider) ||
+      typeof value.workspace !== "string"
+    ) {
       return invalid("Invalid shell.ready event");
     }
-    return { ok: true, value: { type: value.type, providers: value.providers, workspace: value.workspace } };
+    return {
+      ok: true,
+      value: {
+        type: value.type,
+        protocolVersion: SHELL_PROTOCOL_VERSION,
+        providers: value.providers,
+        workspace: value.workspace
+      }
+    };
+  }
+
+  if (value.type === "run.started") {
+    if (!isRequestId(value.requestId) || !isRunId(value.runId) || !isAgentProvider(value.provider)) {
+      return invalid("Invalid run.started event");
+    }
+    return {
+      ok: true,
+      value: { type: value.type, requestId: value.requestId, runId: value.runId, provider: value.provider }
+    };
+  }
+
+  if (value.type === "run.rejected") {
+    if (!isRequestId(value.requestId) || value.reason !== "run_in_progress") {
+      return invalid("Invalid run.rejected event");
+    }
+    return { ok: true, value: { type: value.type, requestId: value.requestId, reason: value.reason } };
+  }
+
+  if (value.type === "cancel.rejected") {
+    if (!isRunId(value.runId) || value.reason !== "run_not_active") {
+      return invalid("Invalid cancel.rejected event");
+    }
+    return { ok: true, value: { type: value.type, runId: value.runId, reason: value.reason } };
+  }
+
+  if (value.type === "run.cancelled") {
+    if (!isRunId(value.runId)) return invalid("Invalid run.cancelled event");
+    return { ok: true, value: { type: value.type, runId: value.runId } };
   }
 
   if (value.type === "thread.started") {
-    if (!isAgentProvider(value.provider) || typeof value.threadId !== "string") {
+    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || typeof value.threadId !== "string") {
       return invalid("Invalid thread.started event");
     }
-    return { ok: true, value: { type: value.type, provider: value.provider, threadId: value.threadId } };
+    return {
+      ok: true,
+      value: { type: value.type, runId: value.runId, provider: value.provider, threadId: value.threadId }
+    };
   }
 
   if (value.type === "turn.started") {
-    if (!isAgentProvider(value.provider) || !isOptionalNullableString(value.threadId, 256)) {
+    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || !isOptionalNullableString(value.threadId, 256)) {
       return invalid("Invalid turn.started event");
     }
-    return { ok: true, value: { type: value.type, provider: value.provider, threadId: value.threadId } };
+    return {
+      ok: true,
+      value: { type: value.type, runId: value.runId, provider: value.provider, threadId: value.threadId }
+    };
   }
 
   if (value.type === "item.started" || value.type === "item.updated" || value.type === "item.completed") {
-    if (!isAgentProvider(value.provider) || !isAgentItem(value.item)) {
+    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || !isAgentItem(value.item)) {
       return invalid(`Invalid ${value.type} event`);
     }
-    return { ok: true, value: { type: value.type, provider: value.provider, item: value.item } };
+    return {
+      ok: true,
+      value: { type: value.type, runId: value.runId, provider: value.provider, item: value.item }
+    };
   }
 
   if (value.type === "agent.delta") {
-    if (!isAgentProvider(value.provider) || typeof value.text !== "string") {
+    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || typeof value.text !== "string") {
       return invalid("Invalid agent.delta event");
     }
-    return { ok: true, value: { type: value.type, provider: value.provider, text: value.text } };
+    return {
+      ok: true,
+      value: { type: value.type, runId: value.runId, provider: value.provider, text: value.text }
+    };
   }
 
   if (value.type === "turn.completed") {
     if (
+      !isRunId(value.runId) ||
       !isAgentProvider(value.provider) ||
       !isOptionalNullableString(value.threadId, 256) ||
       (value.usage !== undefined && value.usage !== null && !isUsage(value.usage))
@@ -201,22 +302,38 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
     }
     return {
       ok: true,
-      value: { type: value.type, provider: value.provider, threadId: value.threadId, usage: value.usage }
+      value: {
+        type: value.type,
+        runId: value.runId,
+        provider: value.provider,
+        threadId: value.threadId,
+        usage: value.usage
+      }
     };
   }
 
   if (value.type === "turn.failed") {
-    if (!isAgentProvider(value.provider) || typeof value.error !== "string") {
+    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || typeof value.error !== "string") {
       return invalid("Invalid turn.failed event");
     }
-    return { ok: true, value: { type: value.type, provider: value.provider, error: value.error } };
+    return {
+      ok: true,
+      value: { type: value.type, runId: value.runId, provider: value.provider, error: value.error }
+    };
   }
 
   if (value.type === "log") {
-    if (!isLogLevel(value.level) || typeof value.message !== "string") {
+    if (
+      (value.runId !== undefined && !isRunId(value.runId)) ||
+      !isLogLevel(value.level) ||
+      typeof value.message !== "string"
+    ) {
       return invalid("Invalid log event");
     }
-    return { ok: true, value: { type: value.type, level: value.level, message: value.message } };
+    return {
+      ok: true,
+      value: { type: value.type, runId: value.runId, level: value.level, message: value.message }
+    };
   }
 
   return invalid("Unsupported shell event");
@@ -228,6 +345,14 @@ function isAgentProvider(value: unknown): value is AgentProvider {
 
 function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return typeof value === "string" && reasoningEfforts.has(value as ReasoningEffort);
+}
+
+function isRequestId(value: unknown): value is ShellRequestId {
+  return typeof value === "string" && requestIdPattern.test(value);
+}
+
+function isRunId(value: unknown): value is ShellRunId {
+  return typeof value === "string" && runIdPattern.test(value);
 }
 
 function isAgentItem(value: unknown): value is AgentItem {

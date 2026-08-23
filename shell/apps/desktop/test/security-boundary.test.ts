@@ -92,3 +92,11 @@ test("Core status stays behind the trusted preload bridge", () => {
   assert.doesNotMatch(webAppSource, /127\.0\.0\.1:8786/);
   assert.doesNotMatch(webAppSource, /\/v1\/(?:health|node)/);
 });
+
+test("renderer targets cancellation and ignores stale run events", () => {
+  assert.match(webAppSource, /type:\s*"run",\s*requestId,\s*request/);
+  assert.match(webAppSource, /type:\s*"cancel",\s*runId/);
+  assert.match(webAppSource, /eventRunId\s*!==\s*activeRunIdRef\.current/);
+  assert.match(webAppSource, /pendingRequestIdRef\.current\s*\|\|\s*activeRunIdRef\.current/);
+  assert.doesNotMatch(webAppSource, /JSON\.stringify\(\{\s*type:\s*"cancel"\s*\}\)/);
+});

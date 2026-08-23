@@ -16,7 +16,9 @@ import {
   SHELL_WEBSOCKET_PROTOCOL,
   type AgentProvider,
   type ClientRunRequest,
-  type ShellEvent
+  type ShellEvent,
+  type ShellRequestId,
+  type ShellRunId
 } from "@netnavr/shell-protocol";
 
 type ShellConnectionInfo = {
@@ -37,8 +39,11 @@ type Line = {
 
 export function App() {
   const socketRef = useRef<WebSocket | null>(null);
+  const activeRunIdRef = useRef<ShellRunId | null>(null);
+  const pendingRequestIdRef = useRef<ShellRequestId | null>(null);
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<ShellRunId | null>(null);
   const [providers, setProviders] = useState<AgentProvider[]>(["mock"]);
   const [provider, setProvider] = useState<AgentProvider>("mock");
   const [prompt, setPrompt] = useState("Summarize the current NetNavr Shell and suggest the next implementation step.");
@@ -71,8 +76,11 @@ export function App() {
         };
         socket.onclose = () => {
           if (!active) return;
+          activeRunIdRef.current = null;
+          pendingRequestIdRef.current = null;
           setConnected(false);
           setRunning(false);
+          setActiveRunId(null);
         };
         socket.onmessage = (message) => {
           if (!active || typeof message.data !== "string") return;
@@ -146,6 +154,22 @@ export function App() {
       return;
     }
 
+    if (event.type === "run.started") {
+      if (event.requestId !== pendingRequestIdRef.current) return;
+      pendingRequestIdRef.current = null;
+      activeRunIdRef.current = event.runId;
+      setActiveRunId(event.runId);
+    } else if (event.type === "run.rejected") {
+      if (event.requestId !== pendingRequestIdRef.current) return;
+      pendingRequestIdRef.current = null;
+      activeRunIdRef.current = null;
+      setActiveRunId(null);
+      setRunning(false);
+    } else {
+      const eventRunId = getRunId(event);
+      if (eventRunId && eventRunId !== activeRunIdRef.current) return;
+    }
+
     if (event.type === "thread.started") {
       setThreadId(event.threadId);
     }
@@ -154,7 +178,13 @@ export function App() {
       setStreamText((current) => current + event.text);
     }
 
-    if (event.type === "turn.completed" || event.type === "turn.failed") {
+    if (
+      event.type === "turn.completed" ||
+      event.type === "turn.failed" ||
+      event.type === "run.cancelled"
+    ) {
+      activeRunIdRef.current = null;
+      setActiveRunId(null);
       setRunning(false);
     }
 
@@ -184,11 +214,14 @@ export function App() {
 
   function run() {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    if (pendingRequestIdRef.current || activeRunIdRef.current) return;
     if (!prompt.trim() || prompt.length > 64_000) return;
 
     setRunning(true);
     setStreamText("");
     setLines([]);
+    activeRunIdRef.current = null;
+    setActiveRunId(null);
 
     const request: ClientRunRequest = {
       provider,
@@ -197,13 +230,21 @@ export function App() {
       model: model.trim() || undefined,
       reasoningEffort: "medium"
     };
+    const requestId = createRequestId();
+    pendingRequestIdRef.current = requestId;
 
-    socketRef.current.send(JSON.stringify({ type: "run", request }));
+    try {
+      socketRef.current.send(JSON.stringify({ type: "run", requestId, request }));
+    } catch {
+      pendingRequestIdRef.current = null;
+      setRunning(false);
+    }
   }
 
   function cancel() {
-    socketRef.current?.send(JSON.stringify({ type: "cancel" }));
-    setRunning(false);
+    const runId = activeRunIdRef.current;
+    if (!runId || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(JSON.stringify({ type: "cancel", runId }));
   }
 
   return (
@@ -330,7 +371,7 @@ export function App() {
                 <Play size={17} aria-hidden="true" />
                 <span>Run</span>
               </button>
-              <button type="button" onClick={cancel} disabled={!running} title="Cancel">
+              <button type="button" onClick={cancel} disabled={!running || !activeRunId} title="Cancel">
                 <Square size={16} aria-hidden="true" />
                 <span>Stop</span>
               </button>
@@ -357,6 +398,14 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function createRequestId(): ShellRequestId {
+  return `req_${crypto.randomUUID()}`;
+}
+
+function getRunId(event: ShellEvent): ShellRunId | null {
+  return "runId" in event && event.runId ? event.runId : null;
 }
 
 function formatUptime(totalSeconds: number): string {
@@ -394,6 +443,8 @@ function EventRow({ event }: { event: ShellEvent }) {
 
   if ("message" in event) detail = event.message;
   if ("item" in event) detail = event.item.title ?? event.item.type;
+  if (event.type === "run.started" || event.type === "run.cancelled") detail = event.runId;
+  if (event.type === "run.rejected" || event.type === "cancel.rejected") detail = event.reason;
   if (event.type === "thread.started") detail = event.threadId;
   if (event.type === "turn.failed") detail = event.error;
   if (event.type === "turn.completed") detail = event.usage ? `${event.usage.inputTokens} in / ${event.usage.outputTokens} out` : "done";

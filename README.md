@@ -63,7 +63,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | Area | Responsibility | Current implementation | Status |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; bounded read-only API contract | ✅ `v0.2.1` |
-| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; authenticated loopback WebSocket; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
+| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; authenticated loopback WebSocket; correlated run control; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
 | [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
@@ -85,6 +85,8 @@ The table below describes what can be inspected in the current source tree. Prod
 - Contains Web, Electron Desktop, local Agent Server, protocol, model-router, and Codex-client packages.
 - Keeps workspace, sandbox, and approval policy under server control for local WebSocket sessions.
 - Generates and shares a fresh local session token between the server and Web client when using `npm run dev`.
+- Uses Shell protocol v2 with validated request and run IDs, attaches every run-scoped event to one run, rejects overlapping starts, and only cancels the matching active run.
+- Keeps the Renderer on the acknowledged run and ignores stale run-scoped events instead of letting an old completion or cancellation change current UI state.
 - Starts the Electron-owned Agent Server on an OS-assigned loopback port and passes its ephemeral connection information through a context-isolated, sandboxed preload bridge instead of the renderer URL.
 - Applies a restrictive renderer CSP and sends only credential-free HTTPS links to the operating system.
 - Reads Core health, version, API version, and persistent Node ID through the trusted Electron bridge; the Renderer does not contact Core directly or retain an authoritative identity copy.
@@ -102,7 +104,7 @@ The table below describes what can be inspected in the current source tree. Prod
 
 ### Not implemented yet
 
-**Navigator identity, governed memory, complete permission enforcement, provider-switch continuity, device pairing, backup and restore, and a public Ability manifest / sandbox / signing model remain in design or development.** A Node ID is only a local installation anchor; it is not a user identity or authentication credential.
+**Navigator identity, governed memory, complete permission enforcement, provider-switch continuity, device pairing, backup and restore, and a public Ability manifest / sandbox / signing model remain in design or development.** A Node ID is only a local installation anchor; it is not a user identity or authentication credential. Shell still permits only one active run per local connection and does not persist run history.
 
 <a id="architecture"></a>
 
@@ -119,7 +121,7 @@ flowchart LR
     C --> C3["Runtime lock + storage integrity"]
 
     S --> S1["Web + Electron"]
-    S --> S2["Local authenticated WebSocket"]
+    S --> S2["Authenticated WebSocket + correlated runs"]
     S --> S3["Mock / Codex providers"]
     S --> S4["Read-only Core / Node status"]
 
@@ -223,7 +225,7 @@ See [`shell/.env.example`](./shell/.env.example) and [`pay/.env.example`](./pay/
 | Stage | Proof target | Status |
 | :--- | :--- | :---: |
 | **Local foundation** | Loopback Core, SQLite v1, persistent Node ID, single-owner storage, restrictive file permissions, bounded read-only HTTP | ✅ Verified |
-| **Interaction prototype** | Web / Electron Shell, authenticated local WebSocket, read-only Core / Node status, Mock / Codex provider routing | 🚧 Prototype |
+| **Interaction prototype** | Web / Electron Shell, authenticated local WebSocket, correlated single-run control, read-only Core / Node status, Mock / Codex provider routing | 🚧 Prototype |
 | **Identity and memory** | Navigator identity plus governed memory with provenance and confirmation state | ⏭️ Next |
 | **Ability boundary** | One low-risk Ability with explicit permissions and structured results | ⬜ Not complete |
 | **Continuity proof** | Switch providers without losing identity or confirmed memory | ⬜ Not complete |
@@ -249,6 +251,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 - Core is fixed to the local loopback interface; do not expose the current prototype through a proxy or port forward.
 - Core accepts no request bodies while its HTTP surface remains read-only; request IDs are diagnostic correlation values, not authentication credentials.
 - Shell reads Core status only through its trusted Electron bridge and never treats the displayed Node ID as a user identity or authentication credential.
+- Shell request and run IDs provide local protocol correlation only; they are not authentication, authorization, durable identity, or permission grants.
 - Windows currently relies on inherited ACLs for the user data directory; a future installer still needs to configure and verify current-user-only ACLs explicitly.
 - `pay/` is a sandbox and must not process real funds.
 - Integrations involving important data, credentials, or irreversible actions should wait for the permission model.

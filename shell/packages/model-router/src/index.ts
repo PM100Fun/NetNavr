@@ -30,8 +30,8 @@ export class MockAgent implements RoutedAgent {
 
   async *run(request: RunRequest, signal?: AbortSignal): AsyncGenerator<ShellEvent> {
     const threadId = request.threadId ?? `mock-${Date.now().toString(36)}`;
-    yield { type: "thread.started", provider: this.provider, threadId };
-    yield { type: "turn.started", provider: this.provider, threadId };
+    yield { type: "thread.started", runId: request.runId, provider: this.provider, threadId };
+    yield { type: "turn.started", runId: request.runId, provider: this.provider, threadId };
 
     const response = [
       "Mock agent online.",
@@ -45,6 +45,7 @@ export class MockAgent implements RoutedAgent {
     const itemId = `item-${Date.now().toString(36)}`;
     yield {
       type: "item.started",
+      runId: request.runId,
       provider: this.provider,
       item: {
         id: itemId,
@@ -56,15 +57,16 @@ export class MockAgent implements RoutedAgent {
 
     for (const token of response.split(/(\s+)/)) {
       if (signal?.aborted) {
-        yield { type: "turn.failed", provider: this.provider, error: "Cancelled" };
+        yield { type: "turn.failed", runId: request.runId, provider: this.provider, error: "Cancelled" };
         return;
       }
-      yield { type: "agent.delta", provider: this.provider, text: token };
+      yield { type: "agent.delta", runId: request.runId, provider: this.provider, text: token };
       await sleep(18);
     }
 
     yield {
       type: "item.completed",
+      runId: request.runId,
       provider: this.provider,
       item: {
         id: itemId,
@@ -75,6 +77,7 @@ export class MockAgent implements RoutedAgent {
     };
     yield {
       type: "turn.completed",
+      runId: request.runId,
       provider: this.provider,
       threadId,
       usage: {
