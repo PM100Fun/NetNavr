@@ -24,6 +24,28 @@ const DEFAULT_PORT = 8787;
 const MAX_WEBSOCKET_PAYLOAD_BYTES = 128 * 1024;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 
+export const SHELL_HTTP_REQUEST_ID_HEADER = "x-request-id";
+export const SHELL_MAX_HEADER_BYTES = 8 * 1024;
+export const SHELL_MAX_REQUEST_BODY_BYTES = 0;
+export const SHELL_HEADERS_TIMEOUT_MS = 5_000;
+export const SHELL_REQUEST_TIMEOUT_MS = 10_000;
+export const SHELL_KEEP_ALIVE_TIMEOUT_MS = 5_000;
+export const SHELL_MAX_REQUESTS_PER_SOCKET = 100;
+
+export type ShellHttpErrorCode =
+  | "invalid_request_target"
+  | "method_not_allowed"
+  | "not_found"
+  | "request_body_not_allowed";
+
+export type ShellHttpErrorEnvelope = {
+  error: {
+    code: ShellHttpErrorCode;
+    message: string;
+  };
+  requestId: string;
+};
+
 export type AgentServerOptions = {
   host?: string;
   port?: number;
@@ -55,21 +77,20 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   router.register(new MockAgent());
   router.register(new CodexAgent());
 
-  const server = http.createServer((request, response) => {
-    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
-
-    if (request.method === "GET" && requestUrl.pathname === "/health") {
-      writeJson(response, 200, { ok: true, providers: router.providers() });
-      return;
+  const server = http.createServer(
+    {
+      headersTimeout: SHELL_HEADERS_TIMEOUT_MS,
+      insecureHTTPParser: false,
+      keepAliveTimeout: SHELL_KEEP_ALIVE_TIMEOUT_MS,
+      maxHeaderSize: SHELL_MAX_HEADER_BYTES,
+      requestTimeout: SHELL_REQUEST_TIMEOUT_MS,
+      requireHostHeader: true
+    },
+    (request, response) => {
+      routeHttpRequest(request, response, router);
     }
-
-    if (request.method === "GET" && requestUrl.pathname === "/api/providers") {
-      writeJson(response, 200, { providers: router.providers() });
-      return;
-    }
-
-    writeJson(response, 404, { error: "Not found" });
-  });
+  );
+  server.maxRequestsPerSocket = SHELL_MAX_REQUESTS_PER_SOCKET;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -78,11 +99,19 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   });
 
   server.on("upgrade", (request, socket, head) => {
-    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    } catch {
+      socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
     const offeredProtocols = parseWebSocketProtocols(request.headers["sec-websocket-protocol"]);
 
     if (
-      requestUrl.pathname !== "/ws" ||
+      pathname !== "/ws" ||
       !offeredProtocols.includes(SHELL_WEBSOCKET_PROTOCOL) ||
       !hasValidSessionProtocol(offeredProtocols, sessionToken)
     ) {
@@ -279,6 +308,69 @@ function createRunId(): ShellRunId {
   return `run_${randomUUID()}`;
 }
 
+function routeHttpRequest(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  router: ModelRouter
+): void {
+  const requestId = `req_${randomUUID()}`;
+
+  if (requestHasBody(request)) {
+    request.resume();
+    writeError(
+      response,
+      413,
+      requestId,
+      "request_body_not_allowed",
+      "Shell read-only diagnostics do not accept request bodies",
+      { connection: "close" }
+    );
+    return;
+  }
+
+  let pathname: string;
+  try {
+    pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  } catch {
+    writeError(response, 400, requestId, "invalid_request_target", "Request target is invalid");
+    return;
+  }
+
+  const isKnownRoute = pathname === "/health" || pathname === "/api/providers";
+  if (isKnownRoute && request.method !== "GET") {
+    writeError(response, 405, requestId, "method_not_allowed", "Method not allowed", { allow: "GET" });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/health") {
+    writeJson(response, 200, { ok: true, providers: router.providers() }, requestId);
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/providers") {
+    writeJson(response, 200, { providers: router.providers() }, requestId);
+    return;
+  }
+
+  writeError(response, 404, requestId, "not_found", "Route not found");
+}
+
+function requestHasBody(request: http.IncomingMessage): boolean {
+  if (request.headers["transfer-encoding"] !== undefined) return true;
+
+  const contentLength = request.headers["content-length"];
+  if (contentLength === undefined) return false;
+
+  const values = Array.isArray(contentLength) ? contentLength : [contentLength];
+  return values.some((value) => {
+    const normalized = value.trim();
+    if (!/^\d+$/.test(normalized)) return true;
+
+    const length = Number(normalized);
+    return !Number.isSafeInteger(length) || length > SHELL_MAX_REQUEST_BODY_BYTES;
+  });
+}
+
 function normalizeLoopbackHost(host: string | undefined): string {
   const normalized = host?.trim() || DEFAULT_HOST;
   if (!LOOPBACK_HOSTS.has(normalized)) {
@@ -357,11 +449,36 @@ function send(socket: WebSocket, event: ShellEvent): void {
   }
 }
 
-function writeJson(response: http.ServerResponse, status: number, body: unknown): void {
+function writeJson(
+  response: http.ServerResponse,
+  status: number,
+  body: unknown,
+  requestId: string,
+  additionalHeaders: http.OutgoingHttpHeaders = {}
+): void {
+  const payload = JSON.stringify(body);
   response.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    ...additionalHeaders,
+    "content-length": Buffer.byteLength(payload),
+    "content-type": "application/json; charset=utf-8",
+    "x-content-type-options": "nosniff",
+    [SHELL_HTTP_REQUEST_ID_HEADER]: requestId
   });
-  response.end(JSON.stringify(body));
+  response.end(payload);
+}
+
+function writeError(
+  response: http.ServerResponse,
+  status: number,
+  requestId: string,
+  code: ShellHttpErrorCode,
+  message: string,
+  additionalHeaders: http.OutgoingHttpHeaders = {}
+): void {
+  const body: ShellHttpErrorEnvelope = {
+    error: { code, message },
+    requestId
+  };
+  writeJson(response, status, body, requestId, additionalHeaders);
 }

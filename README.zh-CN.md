@@ -63,7 +63,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 | 模块 | 职责 | 当前实现 | 状态 |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；有界只读 API 契约 | ✅ `v0.2.1` |
-| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；认证回环 WebSocket；关联运行控制；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
+| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；有界只读诊断；认证回环 WebSocket；关联运行控制；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
 | [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；事件绑定的签名 Webhook | 🧪 仅沙盒 |
 
 <details>
@@ -85,6 +85,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 包含 Web、Electron Desktop、本地 Agent Server、协议、Model Router 与 Codex Client。
 - 本地 WebSocket 会话中的工作区、sandbox 与 approval policy 由服务端控制。
 - 使用 `npm run dev` 时，为服务端与 Web 客户端生成并共享新的本地会话令牌。
+- 通过 `GET /health` 与 `GET /api/providers` 提供有界只读诊断，包含服务端生成的请求 ID 与结构化错误；拒绝请求体、已知路由上的错误方法和过大的请求头。
 - 使用 Shell 协议 v2 校验请求 ID 与运行 ID，把每个运行范围事件关联到唯一运行；拒绝重叠启动，并且只取消匹配的当前运行。
 - Renderer 只跟随服务端确认的运行并忽略过期运行事件，避免旧完成或旧取消改变当前 UI 状态。
 - Electron 自有 Agent Server 使用操作系统分配的回环端口，并通过 context-isolated、sandboxed Preload 桥传递临时连接信息，不再写入 Renderer URL。
@@ -124,6 +125,7 @@ flowchart LR
     S --> S2["认证 WebSocket + 运行关联"]
     S --> S3["Mock / Codex Provider"]
     S --> S4["只读 Core / Node 状态"]
+    S --> S5["有界只读诊断"]
 
     P --> P1["沙盒账本"]
     P --> P2["幂等 + 签名 Webhook"]
@@ -225,7 +227,7 @@ npm --prefix pay start
 | 阶段 | 验证目标 | 状态 |
 | :--- | :--- | :---: |
 | **本地基础** | 回环 Core、SQLite v1、持久 Node ID、单实例存储、限制性文件权限与有界只读 HTTP | ✅ 已验证 |
-| **交互原型** | Web / Electron Shell、本地认证 WebSocket、关联的单运行控制、只读 Core / Node 状态、Mock / Codex Provider 路由 | 🚧 原型 |
+| **交互原型** | Web / Electron Shell、有界只读诊断、本地认证 WebSocket、关联的单运行控制、只读 Core / Node 状态、Mock / Codex Provider 路由 | 🚧 原型 |
 | **身份与记忆** | Navigator 身份、带来源与确认状态的受治理记忆 | ⏭️ 下一阶段 |
 | **能力边界** | 一个低风险 Ability、明确权限与结构化结果 | ⬜ 未完成 |
 | **连续性证明** | 切换 Provider 后身份与已确认记忆不丢失 | ⬜ 未完成 |
@@ -250,6 +252,7 @@ NetNavr 现阶段最需要可复现的故障报告、小而聚焦的实验，以
 
 - Core 固定监听本机回环地址；不要通过代理或端口转发把当前原型暴露到公网。
 - Core 的 HTTP 表面保持只读时不接受任何请求体；请求 ID 只用于诊断关联，不是认证凭据。
+- Shell 的 HTTP 诊断不接受请求体，对解析器与连接资源设置边界；请求 ID 只用于本地排障，不用于认证或授权。
 - Shell 只通过受信任 Electron 桥读取 Core 状态，且不会把展示的 Node ID 当作用户身份或认证凭据。
 - Shell 请求 ID 与运行 ID 只用于本地协议关联，不是认证、授权、持久身份或权限许可。
 - Windows 当前依赖用户数据目录继承的 ACL；未来安装器仍需显式配置并验证只有当前用户可访问的 ACL。
