@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { realpath } from "node:fs/promises";
+import { connect } from "node:net";
 import test from "node:test";
 
 import {
@@ -11,18 +12,114 @@ import {
 } from "@netnavr/shell-protocol";
 import WebSocket, { type RawData } from "ws";
 
-import { startAgentServer } from "../src/agentServer.js";
+import {
+  SHELL_HTTP_REQUEST_ID_HEADER,
+  SHELL_MAX_HEADER_BYTES,
+  startAgentServer,
+  type AgentServerHandle
+} from "../src/agentServer.js";
 
 const sessionToken = "test_session_token_0123456789abcdef";
 const firstRequestId = "req_12345678-1234-4123-8123-123456789abc";
 const secondRequestId = "req_22345678-1234-4123-8123-123456789abc";
 const staleRunId = "run_32345678-1234-4123-8123-123456789abc";
+const shellHttpRequestIdPattern = /^req_[0-9a-f-]{36}$/;
 
 test("rejects non-loopback listeners", async () => {
   await assert.rejects(
     startAgentServer({ host: "0.0.0.0", port: 0, workspaceRoot: process.cwd(), sessionToken }),
     /loopback/
   );
+});
+
+test("serves correlated read-only diagnostics with structured errors", async () => {
+  await withAgentServer(async (server) => {
+    const suppliedRequestId = "req_00000000-0000-4000-8000-000000000000";
+    const health = await fetch(`${server.url}/health`, {
+      headers: { [SHELL_HTTP_REQUEST_ID_HEADER]: suppliedRequestId }
+    });
+    const healthRequestId = health.headers.get(SHELL_HTTP_REQUEST_ID_HEADER);
+
+    assert.equal(health.status, 200);
+    assert.equal(health.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.equal(health.headers.get("cache-control"), "no-store");
+    assert.equal(health.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(health.headers.get("access-control-allow-origin"), null);
+    assert.match(healthRequestId ?? "", shellHttpRequestIdPattern);
+    assert.notEqual(healthRequestId, suppliedRequestId);
+    assert.deepEqual(await health.json(), { ok: true, providers: ["mock", "codex"] });
+
+    const providers = await fetch(`${server.url}/api/providers`);
+    const providersRequestId = providers.headers.get(SHELL_HTTP_REQUEST_ID_HEADER);
+    assert.equal(providers.status, 200);
+    assert.match(providersRequestId ?? "", shellHttpRequestIdPattern);
+    assert.notEqual(providersRequestId, healthRequestId);
+    assert.deepEqual(await providers.json(), { providers: ["mock", "codex"] });
+
+    const missing = await fetch(`${server.url}/missing`);
+    const missingRequestId = missing.headers.get(SHELL_HTTP_REQUEST_ID_HEADER);
+    assert.equal(missing.status, 404);
+    assert.match(missingRequestId ?? "", shellHttpRequestIdPattern);
+    assert.deepEqual(await missing.json(), {
+      error: { code: "not_found", message: "Route not found" },
+      requestId: missingRequestId
+    });
+  });
+});
+
+test("rejects unsupported methods on known diagnostic routes", async () => {
+  await withAgentServer(async (server) => {
+    const response = await fetch(`${server.url}/api/providers`, { method: "POST" });
+    const requestId = response.headers.get(SHELL_HTTP_REQUEST_ID_HEADER);
+
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("allow"), "GET");
+    assert.match(requestId ?? "", shellHttpRequestIdPattern);
+    assert.deepEqual(await response.json(), {
+      error: { code: "method_not_allowed", message: "Method not allowed" },
+      requestId
+    });
+  });
+});
+
+test("rejects diagnostic request bodies and closes the connection", async () => {
+  await withAgentServer(async (server) => {
+    const response = await fetch(`${server.url}/health`, {
+      method: "POST",
+      body: "unexpected"
+    });
+    const requestId = response.headers.get(SHELL_HTTP_REQUEST_ID_HEADER);
+
+    assert.equal(response.status, 413);
+    assert.equal(response.headers.get("connection"), "close");
+    assert.match(requestId ?? "", shellHttpRequestIdPattern);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: "request_body_not_allowed",
+        message: "Shell read-only diagnostics do not accept request bodies"
+      },
+      requestId
+    });
+  });
+});
+
+test("rejects headers above the Shell diagnostic limit", async () => {
+  await withAgentServer(async (server) => {
+    const response = await sendRawHttpRequest(
+      server.host,
+      server.port,
+      [
+        "GET /health HTTP/1.1",
+        `Host: ${server.host}:${server.port}`,
+        `X-Oversized: ${"a".repeat(SHELL_MAX_HEADER_BYTES)}`,
+        "Connection: close",
+        "",
+        ""
+      ].join("\r\n")
+    );
+
+    assert.match(response, /^HTTP\/1\.1 431 /);
+  });
 });
 
 test("requires a session token and keeps execution policy on the server", async (context) => {
@@ -164,6 +261,31 @@ async function assertRejectedUpgrade(webSocketUrl: string, protocols: string[]):
       resolve();
     });
     socket.once("error", () => undefined);
+  });
+}
+
+async function withAgentServer(run: (server: AgentServerHandle) => Promise<void>): Promise<void> {
+  const workspaceRoot = await realpath(process.cwd());
+  const server = await startAgentServer({ port: 0, workspaceRoot, sessionToken });
+  try {
+    await run(server);
+  } finally {
+    await server.close();
+  }
+}
+
+function sendRawHttpRequest(host: string, port: number, request: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connect({ host, port }, () => socket.end(request));
+    let response = "";
+
+    socket.setEncoding("utf8");
+    socket.setTimeout(2_000, () => socket.destroy(new Error("Timed out waiting for HTTP response")));
+    socket.on("data", (chunk: string) => {
+      response += chunk;
+    });
+    socket.once("error", reject);
+    socket.once("end", () => resolve(response));
   });
 }
 
