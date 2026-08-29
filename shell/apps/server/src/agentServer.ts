@@ -2,6 +2,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+import type { Duplex } from "node:stream";
 
 import { CodexAgent } from "@netnavr/shell-codex-client";
 import { MockAgent, ModelRouter } from "@netnavr/shell-model-router";
@@ -31,6 +32,7 @@ export const SHELL_HEADERS_TIMEOUT_MS = 5_000;
 export const SHELL_REQUEST_TIMEOUT_MS = 10_000;
 export const SHELL_KEEP_ALIVE_TIMEOUT_MS = 5_000;
 export const SHELL_MAX_REQUESTS_PER_SOCKET = 100;
+export const SHELL_MAX_AUTHENTICATED_WEBSOCKET_CLIENTS = 4;
 
 export type ShellHttpErrorCode =
   | "invalid_request_target"
@@ -99,24 +101,24 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   });
 
   server.on("upgrade", (request, socket, head) => {
-    let pathname: string;
-    try {
-      pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-    } catch {
-      socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-      socket.destroy();
+    const requestId = createRequestId();
+    if (request.method !== "GET" || request.url !== "/ws") {
+      rejectWebSocketUpgrade(socket, 400, "Bad Request", requestId);
       return;
     }
 
     const offeredProtocols = parseWebSocketProtocols(request.headers["sec-websocket-protocol"]);
 
     if (
-      pathname !== "/ws" ||
       !offeredProtocols.includes(SHELL_WEBSOCKET_PROTOCOL) ||
       !hasValidSessionProtocol(offeredProtocols, sessionToken)
     ) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-      socket.destroy();
+      rejectWebSocketUpgrade(socket, 401, "Unauthorized", requestId);
+      return;
+    }
+
+    if (wss.clients.size >= SHELL_MAX_AUTHENTICATED_WEBSOCKET_CLIENTS) {
+      rejectWebSocketUpgrade(socket, 503, "Service Unavailable", requestId);
       return;
     }
 
@@ -172,6 +174,7 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   await listen(server, host, port);
   const actualPort = getListeningPort(server);
   const urlHost = host === "::1" ? "[::1]" : host;
+  let closePromise: Promise<void> | undefined;
 
   return {
     host,
@@ -180,20 +183,9 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
     webSocketUrl: `ws://${urlHost}:${actualPort}/ws`,
     workspaceRoot,
     sessionToken,
-    close: async () => {
-      for (const client of wss.clients) client.terminate();
-      await new Promise<void>((resolve, reject) => {
-        wss.close((wssError) => {
-          if (wssError) {
-            reject(wssError);
-            return;
-          }
-          server.close((serverError) => {
-            if (serverError) reject(serverError);
-            else resolve();
-          });
-        });
-      });
+    close: () => {
+      closePromise ??= closeAgentServer(server, wss);
+      return closePromise;
     }
   };
 }
@@ -308,12 +300,16 @@ function createRunId(): ShellRunId {
   return `run_${randomUUID()}`;
 }
 
+function createRequestId(): string {
+  return `req_${randomUUID()}`;
+}
+
 function routeHttpRequest(
   request: http.IncomingMessage,
   response: http.ServerResponse,
   router: ModelRouter
 ): void {
-  const requestId = `req_${randomUUID()}`;
+  const requestId = createRequestId();
 
   if (requestHasBody(request)) {
     request.resume();
@@ -422,6 +418,46 @@ function safeEqual(actual: string, expected: string): boolean {
   const actualBuffer = Buffer.from(actual);
   const expectedBuffer = Buffer.from(expected);
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function rejectWebSocketUpgrade(
+  socket: Duplex,
+  statusCode: number,
+  statusText: string,
+  requestId: string
+): void {
+  if (socket.destroyed) return;
+  socket.end(
+    [
+      `HTTP/1.1 ${statusCode} ${statusText}`,
+      "Connection: close",
+      "Content-Length: 0",
+      "Cache-Control: no-store",
+      "X-Content-Type-Options: nosniff",
+      `${SHELL_HTTP_REQUEST_ID_HEADER}: ${requestId}`,
+      "",
+      ""
+    ].join("\r\n")
+  );
+}
+
+function closeAgentServer(server: http.Server, wss: WebSocketServer): Promise<void> {
+  const serverClosed = new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+
+  for (const client of wss.clients) client.terminate();
+  const webSocketServerClosed = new Promise<void>((resolve, reject) => {
+    wss.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+
+  return Promise.all([serverClosed, webSocketServerClosed]).then(() => undefined);
 }
 
 function listen(server: http.Server, host: string, port: number): Promise<void> {

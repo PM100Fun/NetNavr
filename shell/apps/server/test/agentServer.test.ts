@@ -14,6 +14,7 @@ import WebSocket, { type RawData } from "ws";
 
 import {
   SHELL_HTTP_REQUEST_ID_HEADER,
+  SHELL_MAX_AUTHENTICATED_WEBSOCKET_CLIENTS,
   SHELL_MAX_HEADER_BYTES,
   startAgentServer,
   type AgentServerHandle
@@ -120,6 +121,68 @@ test("rejects headers above the Shell diagnostic limit", async () => {
 
     assert.match(response, /^HTTP\/1\.1 431 /);
   });
+});
+
+test("accepts only the exact WebSocket upgrade target", async () => {
+  await withAgentServer(async (server) => {
+    const protocols = authenticatedProtocols();
+    await assertRejectedUpgrade(`${server.webSocketUrl}?unexpected=true`, protocols, 400);
+    await assertRejectedUpgrade(`${server.webSocketUrl}/`, protocols, 400);
+
+    const wrongMethod = await sendRawHttpRequest(
+      server.host,
+      server.port,
+      [
+        "POST /ws HTTP/1.1",
+        `Host: ${server.host}:${server.port}`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGVzdF93ZWJzb2NrZXRfa2V5",
+        `Sec-WebSocket-Protocol: ${protocols.join(", ")}`,
+        "",
+        ""
+      ].join("\r\n")
+    );
+    assert.match(wrongMethod, /^HTTP\/1\.1 400 Bad Request/);
+    assert.match(wrongMethod, /x-request-id: req_[0-9a-f-]{36}/i);
+  });
+});
+
+test("bounds authenticated WebSocket sessions and releases capacity", async () => {
+  const workspaceRoot = await realpath(process.cwd());
+  const server = await startAgentServer({ port: 0, workspaceRoot, sessionToken });
+  const clients: WebSocket[] = [];
+
+  try {
+    for (let index = 0; index < SHELL_MAX_AUTHENTICATED_WEBSOCKET_CLIENTS; index += 1) {
+      clients.push(await openAuthenticatedSocket(server));
+    }
+
+    await assertRejectedUpgrade(server.webSocketUrl, authenticatedProtocols(), 503);
+
+    const firstClient = clients.shift();
+    assert.ok(firstClient);
+    await closeWebSocket(firstClient);
+    clients.push(await openAuthenticatedSocket(server));
+  } finally {
+    for (const client of clients) client.terminate();
+    await server.close();
+  }
+});
+
+test("shutdown is idempotent and closes authenticated sessions", async (context) => {
+  const workspaceRoot = await realpath(process.cwd());
+  const server = await startAgentServer({ port: 0, workspaceRoot, sessionToken });
+  context.after(() => server.close());
+
+  const socket = await openAuthenticatedSocket(server);
+  const socketClosed = once(socket, "close");
+
+  await Promise.all([server.close(), server.close()]);
+  await socketClosed;
+  await server.close();
+  await assert.rejects(fetch(`${server.url}/health`));
 });
 
 test("requires a session token and keeps execution policy on the server", async (context) => {
@@ -250,18 +313,45 @@ test("requires a session token and keeps execution policy on the server", async 
   await once(socket, "close");
 });
 
-async function assertRejectedUpgrade(webSocketUrl: string, protocols: string[]): Promise<void> {
+async function assertRejectedUpgrade(
+  webSocketUrl: string,
+  protocols: string[],
+  expectedStatus = 401
+): Promise<void> {
   const socket = new WebSocket(webSocketUrl, protocols);
 
   await new Promise<void>((resolve, reject) => {
-    socket.once("open", () => reject(new Error("Unauthenticated WebSocket unexpectedly opened")));
+    socket.once("open", () => reject(new Error("Rejected WebSocket unexpectedly opened")));
     socket.once("unexpected-response", (_request, response) => {
-      assert.equal(response.statusCode, 401);
+      assert.equal(response.statusCode, expectedStatus);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.equal(response.headers["x-content-type-options"], "nosniff");
+      assert.match(String(response.headers[SHELL_HTTP_REQUEST_ID_HEADER] ?? ""), shellHttpRequestIdPattern);
       response.resume();
       resolve();
     });
     socket.once("error", () => undefined);
   });
+}
+
+function authenticatedProtocols(): string[] {
+  return [
+    SHELL_WEBSOCKET_PROTOCOL,
+    `${SHELL_WEBSOCKET_AUTH_PREFIX}${sessionToken}`
+  ];
+}
+
+async function openAuthenticatedSocket(server: AgentServerHandle): Promise<WebSocket> {
+  const socket = new WebSocket(server.webSocketUrl, authenticatedProtocols());
+  await once(socket, "open");
+  return socket;
+}
+
+async function closeWebSocket(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.CLOSED) return;
+  const closed = once(socket, "close");
+  socket.close();
+  await closed;
 }
 
 async function withAgentServer(run: (server: AgentServerHandle) => Promise<void>): Promise<void> {
