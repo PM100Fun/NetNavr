@@ -12,8 +12,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   parseShellEvent,
-  SHELL_WEBSOCKET_AUTH_PREFIX,
-  SHELL_WEBSOCKET_PROTOCOL,
   type AgentProvider,
   type ClientRunRequest,
   type ShellEvent,
@@ -21,10 +19,11 @@ import {
   type ShellRunId
 } from "@netnavr/shell-protocol";
 
-type ShellConnectionInfo = {
-  webSocketUrl: string;
-  sessionToken: string;
-};
+import {
+  startShellConnection,
+  type ShellConnectionInfo,
+  type ShellSocket
+} from "./shellConnection";
 
 type CoreStatusResult = Awaited<
   ReturnType<NonNullable<Window["netnavr"]>["getCoreStatus"]>
@@ -38,7 +37,7 @@ type Line = {
 };
 
 export function App() {
-  const socketRef = useRef<WebSocket | null>(null);
+  const socketRef = useRef<ShellSocket | null>(null);
   const activeRunIdRef = useRef<ShellRunId | null>(null);
   const pendingRequestIdRef = useRef<ShellRequestId | null>(null);
   const [connected, setConnected] = useState(false);
@@ -57,46 +56,31 @@ export function App() {
   const [checkingCore, setCheckingCore] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    let socket: WebSocket | null = null;
-
-    async function connect(): Promise<void> {
-      try {
-        const connection = await resolveShellConnection();
-        if (!active) return;
-
-        socket = new WebSocket(connection.webSocketUrl, [
-          SHELL_WEBSOCKET_PROTOCOL,
-          `${SHELL_WEBSOCKET_AUTH_PREFIX}${connection.sessionToken}`
-        ]);
+    const connection = startShellConnection({
+      resolveConnection: resolveShellConnection,
+      onSocket: (socket) => {
         socketRef.current = socket;
+      },
+      onConnected: () => setConnected(true),
+      onDisconnected: () => {
+        activeRunIdRef.current = null;
+        pendingRequestIdRef.current = null;
+        setConnected(false);
+        setRunning(false);
+        setActiveRunId(null);
+      },
+      onMessage: (message) => {
+        let rawEvent: unknown;
+        try {
+          rawEvent = JSON.parse(message);
+        } catch {
+          return;
+        }
 
-        socket.onopen = () => {
-          if (active) setConnected(true);
-        };
-        socket.onclose = () => {
-          if (!active) return;
-          activeRunIdRef.current = null;
-          pendingRequestIdRef.current = null;
-          setConnected(false);
-          setRunning(false);
-          setActiveRunId(null);
-        };
-        socket.onmessage = (message) => {
-          if (!active || typeof message.data !== "string") return;
-
-          let rawEvent: unknown;
-          try {
-            rawEvent = JSON.parse(message.data);
-          } catch {
-            return;
-          }
-
-          const event = parseShellEvent(rawEvent);
-          if (event.ok) receive(event.value);
-        };
-      } catch {
-        if (!active) return;
+        const event = parseShellEvent(rawEvent);
+        if (event.ok) receive(event.value);
+      },
+      onInitializationError: () => {
         setLines([
           {
             id: "missing-session-token",
@@ -104,15 +88,9 @@ export function App() {
           }
         ]);
       }
-    }
+    });
 
-    void connect();
-
-    return () => {
-      active = false;
-      if (socketRef.current === socket) socketRef.current = null;
-      socket?.close();
-    };
+    return () => connection.stop();
   }, []);
 
   useEffect(() => {
