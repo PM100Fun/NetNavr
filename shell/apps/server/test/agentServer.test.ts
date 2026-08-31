@@ -164,7 +164,7 @@ test("bounds authenticated WebSocket sessions and releases capacity", async () =
     const firstClient = clients.shift();
     assert.ok(firstClient);
     await closeWebSocket(firstClient);
-    clients.push(await openAuthenticatedSocket(server));
+    clients.push(await openAuthenticatedSocketAfterCapacityRelease(server));
   } finally {
     for (const client of clients) client.terminate();
     await server.close();
@@ -345,6 +345,28 @@ async function openAuthenticatedSocket(server: AgentServerHandle): Promise<WebSo
   const socket = new WebSocket(server.webSocketUrl, authenticatedProtocols());
   await once(socket, "open");
   return socket;
+}
+
+async function openAuthenticatedSocketAfterCapacityRelease(
+  server: AgentServerHandle,
+  timeoutMs = 2_000
+): Promise<WebSocket> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (true) {
+    try {
+      return await openAuthenticatedSocket(server);
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !/Unexpected server response: 503/.test(error.message) ||
+        Date.now() >= deadline
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
 }
 
 async function closeWebSocket(socket: WebSocket): Promise<void> {
