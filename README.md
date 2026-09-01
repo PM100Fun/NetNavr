@@ -63,7 +63,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | Area | Responsibility | Current implementation | Status |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; bounded read-only API contract | ✅ `v0.2.1` |
-| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; bounded read-only diagnostics; authenticated loopback WebSocket lifecycle with capped reconnect; correlated run control; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
+| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; bounded diagnostics and Renderer state; authenticated loopback WebSocket lifecycle with capped reconnect; correlated run control; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
 | [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
@@ -88,6 +88,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Exposes `GET /health` and `GET /api/providers` as bounded read-only diagnostics with server-generated request IDs and structured errors; rejects request bodies, unsupported methods on known routes, and oversized headers.
 - Accepts WebSocket upgrades only for the exact `GET /ws` target, caps simultaneous authenticated clients at four, correlates rejected upgrades with server-generated request IDs, and shuts down idempotently.
 - Retries unexpected local WebSocket drops with one capped `250 ms` to `5 s` backoff timer, resets the backoff after a successful open, and cancels pending retries when the Renderer unmounts.
+- Limits live Agent output state to `256,000` UTF-16 code units with a visible truncation marker, keeps only the newest `500` event rows, and assigns monotonic row IDs.
 - Uses Shell protocol v2 with validated request and run IDs, attaches every run-scoped event to one run, rejects overlapping starts, and only cancels the matching active run.
 - Keeps the Renderer on the acknowledged run and ignores stale run-scoped events instead of letting an old completion or cancellation change current UI state.
 - Starts the Electron-owned Agent Server on an OS-assigned loopback port and passes its ephemeral connection information through a context-isolated, sandboxed preload bridge instead of the renderer URL.
@@ -128,6 +129,7 @@ flowchart LR
     S --> S3["Mock / Codex providers"]
     S --> S4["Read-only Core / Node status"]
     S --> S5["Bounded read-only diagnostics"]
+    S --> S6["Bounded output + event history"]
 
     P --> P1["Sandbox ledger"]
     P --> P2["Idempotency + signed webhook"]
@@ -229,7 +231,7 @@ See [`shell/.env.example`](./shell/.env.example) and [`pay/.env.example`](./pay/
 | Stage | Proof target | Status |
 | :--- | :--- | :---: |
 | **Local foundation** | Loopback Core, SQLite v1, persistent Node ID, single-owner storage, restrictive file permissions, bounded read-only HTTP | ✅ Verified |
-| **Interaction prototype** | Web / Electron Shell, bounded read-only diagnostics, authenticated WebSocket lifecycle with capped reconnect, correlated single-run control, read-only Core / Node status, Mock / Codex provider routing | 🚧 Prototype |
+| **Interaction prototype** | Web / Electron Shell, bounded diagnostics and Renderer output/history, authenticated WebSocket lifecycle with capped reconnect, correlated single-run control, read-only Core / Node status, Mock / Codex provider routing | 🚧 Prototype |
 | **Identity and memory** | Navigator identity plus governed memory with provenance and confirmation state | ⏭️ Next |
 | **Ability boundary** | One low-risk Ability with explicit permissions and structured results | ⬜ Not complete |
 | **Continuity proof** | Switch providers without losing identity or confirmed memory | ⬜ Not complete |
