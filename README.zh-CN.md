@@ -63,7 +63,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 | 模块 | 职责 | 当前实现 | 状态 |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；有界只读 API 契约 | ✅ `v0.2.1` |
-| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；有界只读诊断；带上限重连的认证回环 WebSocket 生命周期；关联运行控制；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
+| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；有界诊断与 Renderer 状态；带上限重连的认证回环 WebSocket 生命周期；关联运行控制；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
 | [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；事件绑定的签名 Webhook | 🧪 仅沙盒 |
 
 <details>
@@ -88,6 +88,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 通过 `GET /health` 与 `GET /api/providers` 提供有界只读诊断，包含服务端生成的请求 ID 与结构化错误；拒绝请求体、已知路由上的错误方法和过大的请求头。
 - 只接受精确 `GET /ws` 目标的 WebSocket 升级，同时最多允许四个已认证客户端；被拒升级包含服务端请求 ID，服务关闭可以安全地重复调用。
 - 本地 WebSocket 意外断开后只使用一个 `250 ms` 至 `5 s` 的有上限退避计时器重试；连接成功后重置退避，Renderer 卸载时取消待执行重试。
+- 实时 Agent 输出状态最多保留 `256,000` 个 UTF-16 代码单元并显示截断标记；事件列表只保留最新 `500` 条，且使用单调递增的行 ID。
 - 使用 Shell 协议 v2 校验请求 ID 与运行 ID，把每个运行范围事件关联到唯一运行；拒绝重叠启动，并且只取消匹配的当前运行。
 - Renderer 只跟随服务端确认的运行并忽略过期运行事件，避免旧完成或旧取消改变当前 UI 状态。
 - Electron 自有 Agent Server 使用操作系统分配的回环端口，并通过 context-isolated、sandboxed Preload 桥传递临时连接信息，不再写入 Renderer URL。
@@ -128,6 +129,7 @@ flowchart LR
     S --> S3["Mock / Codex Provider"]
     S --> S4["只读 Core / Node 状态"]
     S --> S5["有界只读诊断"]
+    S --> S6["有界输出 + 事件历史"]
 
     P --> P1["沙盒账本"]
     P --> P2["幂等 + 签名 Webhook"]
@@ -229,7 +231,7 @@ npm --prefix pay start
 | 阶段 | 验证目标 | 状态 |
 | :--- | :--- | :---: |
 | **本地基础** | 回环 Core、SQLite v1、持久 Node ID、单实例存储、限制性文件权限与有界只读 HTTP | ✅ 已验证 |
-| **交互原型** | Web / Electron Shell、有界只读诊断、带上限重连的认证 WebSocket 生命周期、关联的单运行控制、只读 Core / Node 状态、Mock / Codex Provider 路由 | 🚧 原型 |
+| **交互原型** | Web / Electron Shell、有界诊断与 Renderer 输出/事件历史、带上限重连的认证 WebSocket 生命周期、关联的单运行控制、只读 Core / Node 状态、Mock / Codex Provider 路由 | 🚧 原型 |
 | **身份与记忆** | Navigator 身份、带来源与确认状态的受治理记忆 | ⏭️ 下一阶段 |
 | **能力边界** | 一个低风险 Ability、明确权限与结构化结果 | ⬜ 未完成 |
 | **连续性证明** | 切换 Provider 后身份与已确认记忆不丢失 | ⬜ 未完成 |

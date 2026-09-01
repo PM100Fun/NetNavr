@@ -24,6 +24,11 @@ import {
   type ShellConnectionInfo,
   type ShellSocket
 } from "./shellConnection";
+import {
+  appendBoundedItem,
+  appendBoundedStreamText,
+  SHELL_MAX_EVENT_ROWS
+} from "./rendererBuffers";
 
 type CoreStatusResult = Awaited<
   ReturnType<NonNullable<Window["netnavr"]>["getCoreStatus"]>
@@ -40,6 +45,7 @@ export function App() {
   const socketRef = useRef<ShellSocket | null>(null);
   const activeRunIdRef = useRef<ShellRunId | null>(null);
   const pendingRequestIdRef = useRef<ShellRequestId | null>(null);
+  const nextLineIdRef = useRef(0);
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
   const [activeRunId, setActiveRunId] = useState<ShellRunId | null>(null);
@@ -153,7 +159,7 @@ export function App() {
     }
 
     if (event.type === "agent.delta") {
-      setStreamText((current) => current + event.text);
+      setStreamText((current) => appendBoundedStreamText(current, event.text));
     }
 
     if (
@@ -166,13 +172,12 @@ export function App() {
       setRunning(false);
     }
 
-    setLines((current) => [
-      ...current,
-      {
-        id: `${Date.now()}-${current.length}`,
-        event
-      }
-    ]);
+    const line = {
+      id: `event-${nextLineIdRef.current}`,
+      event
+    };
+    nextLineIdRef.current += 1;
+    setLines((current) => appendBoundedItem(current, line));
   }
 
   async function refreshCoreStatus() {
@@ -366,7 +371,7 @@ export function App() {
         </section>
 
         <aside className="rightpane">
-          <div className="event-title">Events</div>
+          <div className="event-title">Events · latest {SHELL_MAX_EVENT_ROWS}</div>
           <div className="events">
             {lines.map(({ id, event }) => (
               <EventRow key={id} event={event} />
