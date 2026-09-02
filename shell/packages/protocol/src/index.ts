@@ -40,7 +40,6 @@ export type AgentItem = {
   status?: "inProgress" | "completed" | "failed";
   title?: string;
   text?: string;
-  raw?: unknown;
 };
 
 export type ShellEvent =
@@ -128,6 +127,8 @@ export type ClientMessage =
 export const SHELL_PROTOCOL_VERSION = 2 as const;
 export const SHELL_WEBSOCKET_PROTOCOL = `netnavr-shell-v${SHELL_PROTOCOL_VERSION}`;
 export const SHELL_WEBSOCKET_AUTH_PREFIX = "netnavr-shell-auth.";
+export const SHELL_MAX_EVENT_TEXT_CODE_UNITS = 256_000;
+export const SHELL_MAX_DIAGNOSTIC_CODE_UNITS = 4_096;
 
 export type ParseResult<T> =
   | {
@@ -145,6 +146,11 @@ const itemStatuses = new Set<NonNullable<AgentItem["status"]>>(["inProgress", "c
 const logLevels = new Set(["info", "warn", "error"] as const);
 const requestIdPattern = /^req_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const runIdPattern = /^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_WORKSPACE_CODE_UNITS = 32_768;
+const MAX_THREAD_ID_CODE_UNITS = 256;
+const MAX_ITEM_ID_CODE_UNITS = 256;
+const MAX_ITEM_TYPE_CODE_UNITS = 128;
+const MAX_ITEM_TITLE_CODE_UNITS = 512;
 
 export function parseClientMessage(value: unknown): ParseResult<ClientMessage> {
   if (!isRecord(value) || typeof value.type !== "string") {
@@ -206,8 +212,10 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
     if (
       value.protocolVersion !== SHELL_PROTOCOL_VERSION ||
       !Array.isArray(value.providers) ||
+      value.providers.length > agentProviders.size ||
       !value.providers.every(isAgentProvider) ||
-      typeof value.workspace !== "string"
+      new Set(value.providers).size !== value.providers.length ||
+      !isNonEmptyBoundedString(value.workspace, MAX_WORKSPACE_CODE_UNITS)
     ) {
       return invalid("Invalid shell.ready event");
     }
@@ -216,7 +224,7 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
       value: {
         type: value.type,
         protocolVersion: SHELL_PROTOCOL_VERSION,
-        providers: value.providers,
+        providers: [...value.providers],
         workspace: value.workspace
       }
     };
@@ -252,7 +260,11 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
   }
 
   if (value.type === "thread.started") {
-    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || typeof value.threadId !== "string") {
+    if (
+      !isRunId(value.runId) ||
+      !isAgentProvider(value.provider) ||
+      !isNonEmptyBoundedString(value.threadId, MAX_THREAD_ID_CODE_UNITS)
+    ) {
       return invalid("Invalid thread.started event");
     }
     return {
@@ -262,7 +274,11 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
   }
 
   if (value.type === "turn.started") {
-    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || !isOptionalNullableString(value.threadId, 256)) {
+    if (
+      !isRunId(value.runId) ||
+      !isAgentProvider(value.provider) ||
+      !isOptionalNullableString(value.threadId, MAX_THREAD_ID_CODE_UNITS)
+    ) {
       return invalid("Invalid turn.started event");
     }
     return {
@@ -277,12 +293,16 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
     }
     return {
       ok: true,
-      value: { type: value.type, runId: value.runId, provider: value.provider, item: value.item }
+      value: { type: value.type, runId: value.runId, provider: value.provider, item: copyAgentItem(value.item) }
     };
   }
 
   if (value.type === "agent.delta") {
-    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || typeof value.text !== "string") {
+    if (
+      !isRunId(value.runId) ||
+      !isAgentProvider(value.provider) ||
+      !isBoundedString(value.text, SHELL_MAX_EVENT_TEXT_CODE_UNITS)
+    ) {
       return invalid("Invalid agent.delta event");
     }
     return {
@@ -295,7 +315,7 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
     if (
       !isRunId(value.runId) ||
       !isAgentProvider(value.provider) ||
-      !isOptionalNullableString(value.threadId, 256) ||
+      !isOptionalNullableString(value.threadId, MAX_THREAD_ID_CODE_UNITS) ||
       (value.usage !== undefined && value.usage !== null && !isUsage(value.usage))
     ) {
       return invalid("Invalid turn.completed event");
@@ -307,13 +327,20 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
         runId: value.runId,
         provider: value.provider,
         threadId: value.threadId,
-        usage: value.usage
+        usage:
+          value.usage === undefined || value.usage === null
+            ? value.usage
+            : copyUsage(value.usage)
       }
     };
   }
 
   if (value.type === "turn.failed") {
-    if (!isRunId(value.runId) || !isAgentProvider(value.provider) || typeof value.error !== "string") {
+    if (
+      !isRunId(value.runId) ||
+      !isAgentProvider(value.provider) ||
+      !isBoundedString(value.error, SHELL_MAX_DIAGNOSTIC_CODE_UNITS)
+    ) {
       return invalid("Invalid turn.failed event");
     }
     return {
@@ -326,7 +353,7 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
     if (
       (value.runId !== undefined && !isRunId(value.runId)) ||
       !isLogLevel(value.level) ||
-      typeof value.message !== "string"
+      !isBoundedString(value.message, SHELL_MAX_DIAGNOSTIC_CODE_UNITS)
     ) {
       return invalid("Invalid log event");
     }
@@ -337,6 +364,12 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
   }
 
   return invalid("Unsupported shell event");
+}
+
+export function serializeShellEvent(value: unknown): ParseResult<string> {
+  const parsed = parseShellEvent(value);
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: JSON.stringify(parsed.value) };
 }
 
 function isAgentProvider(value: unknown): value is AgentProvider {
@@ -358,26 +391,45 @@ function isRunId(value: unknown): value is ShellRunId {
 function isAgentItem(value: unknown): value is AgentItem {
   return (
     isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.type === "string" &&
+    isNonEmptyBoundedString(value.id, MAX_ITEM_ID_CODE_UNITS) &&
+    isNonEmptyBoundedString(value.type, MAX_ITEM_TYPE_CODE_UNITS) &&
     (value.status === undefined || itemStatuses.has(value.status as NonNullable<AgentItem["status"]>)) &&
-    (value.title === undefined || typeof value.title === "string") &&
-    (value.text === undefined || typeof value.text === "string")
+    isOptionalString(value.title, MAX_ITEM_TITLE_CODE_UNITS) &&
+    isOptionalString(value.text, SHELL_MAX_EVENT_TEXT_CODE_UNITS)
   );
+}
+
+function copyAgentItem(value: AgentItem): AgentItem {
+  return {
+    id: value.id,
+    type: value.type,
+    ...(value.status === undefined ? {} : { status: value.status }),
+    ...(value.title === undefined ? {} : { title: value.title }),
+    ...(value.text === undefined ? {} : { text: value.text })
+  };
 }
 
 function isUsage(value: unknown): value is Usage {
   return (
     isRecord(value) &&
-    isFiniteNumber(value.inputTokens) &&
-    isFiniteNumber(value.cachedInputTokens) &&
-    isFiniteNumber(value.outputTokens) &&
-    isFiniteNumber(value.reasoningOutputTokens)
+    isNonNegativeSafeInteger(value.inputTokens) &&
+    isNonNegativeSafeInteger(value.cachedInputTokens) &&
+    isNonNegativeSafeInteger(value.outputTokens) &&
+    isNonNegativeSafeInteger(value.reasoningOutputTokens)
   );
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function copyUsage(value: Usage): Usage {
+  return {
+    inputTokens: value.inputTokens,
+    cachedInputTokens: value.cachedInputTokens,
+    outputTokens: value.outputTokens,
+    reasoningOutputTokens: value.reasoningOutputTokens
+  };
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isLogLevel(value: unknown): value is "info" | "warn" | "error" {
@@ -385,11 +437,19 @@ function isLogLevel(value: unknown): value is "info" | "warn" | "error" {
 }
 
 function isOptionalString(value: unknown, maxLength: number): value is string | undefined {
-  return value === undefined || (typeof value === "string" && value.length <= maxLength);
+  return value === undefined || isBoundedString(value, maxLength);
 }
 
 function isOptionalNullableString(value: unknown, maxLength: number): value is string | null | undefined {
   return value === null || isOptionalString(value, maxLength);
+}
+
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.length <= maxLength;
+}
+
+function isNonEmptyBoundedString(value: unknown, maxLength: number): value is string {
+  return isBoundedString(value, maxLength) && value.length > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

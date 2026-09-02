@@ -8,6 +8,7 @@ import { CodexAgent } from "@netnavr/shell-codex-client";
 import { MockAgent, ModelRouter } from "@netnavr/shell-model-router";
 import {
   parseClientMessage,
+  serializeShellEvent,
   SHELL_PROTOCOL_VERSION,
   SHELL_WEBSOCKET_AUTH_PREFIX,
   SHELL_WEBSOCKET_PROTOCOL,
@@ -478,8 +479,12 @@ function getListeningPort(server: http.Server): number {
 
 function send(socket: WebSocket, event: ShellEvent): void {
   if (socket.readyState !== socket.OPEN) return;
+  const serialized = serializeShellEvent(event);
+  if (!serialized.ok) {
+    throw new TypeError(`Server produced an invalid Shell event: ${serialized.error}`);
+  }
   try {
-    socket.send(JSON.stringify(event));
+    socket.send(serialized.value);
   } catch {
     socket.close(1011, "Unable to serialize server event");
   }

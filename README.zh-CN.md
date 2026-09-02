@@ -63,7 +63,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 | 模块 | 职责 | 当前实现 | 状态 |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | 共享运行时、持久状态与策略边界 | 仅监听回环地址；SQLite schema v1；持久 Node ID；数据目录单实例所有权；有界只读 API 契约 | ✅ `v0.2.1` |
-| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；有界诊断与 Renderer 状态；带上限重连的认证回环 WebSocket 生命周期；关联运行控制；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
+| [`shell/`](./shell) | 可替换的人机交互界面 | Electron / React / TypeScript；有界诊断、协议 envelope 与 Renderer 状态；带上限重连的认证回环 WebSocket 生命周期；关联运行控制；只读 Core 与 Node 状态；Mock 与 Codex 路由 | 🚧 原型 |
 | [`pay/`](./pay) | 与通用运行时隔离的支付行为 | SQLite 沙盒账本；幂等创建；Sandbox Channel；事件绑定的签名 Webhook | 🧪 仅沙盒 |
 
 <details>
@@ -89,6 +89,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 只接受精确 `GET /ws` 目标的 WebSocket 升级，同时最多允许四个已认证客户端；被拒升级包含服务端请求 ID，服务关闭可以安全地重复调用。
 - 本地 WebSocket 意外断开后只使用一个 `250 ms` 至 `5 s` 的有上限退避计时器重试；连接成功后重置退避，Renderer 卸载时取消待执行重试。
 - 实时 Agent 输出状态最多保留 `256,000` 个 UTF-16 代码单元并显示截断标记；事件列表只保留最新 `500` 条，且使用单调递增的行 ID。
+- 通过共享协议校验器序列化服务端事件，移除上游原始 payload 对象和意外字段；单个事件文本最多 `256,000` 个代码单元、诊断文本最多 `4,096` 个，并且 usage 只接受非负整数计数。
 - 使用 Shell 协议 v2 校验请求 ID 与运行 ID，把每个运行范围事件关联到唯一运行；拒绝重叠启动，并且只取消匹配的当前运行。
 - Renderer 只跟随服务端确认的运行并忽略过期运行事件，避免旧完成或旧取消改变当前 UI 状态。
 - Electron 自有 Agent Server 使用操作系统分配的回环端口，并通过 context-isolated、sandboxed Preload 桥传递临时连接信息，不再写入 Renderer URL。
@@ -258,6 +259,7 @@ NetNavr 现阶段最需要可复现的故障报告、小而聚焦的实验，以
 - Core 的 HTTP 表面保持只读时不接受任何请求体；请求 ID 只用于诊断关联，不是认证凭据。
 - Shell 的 HTTP 诊断不接受请求体，对解析器与连接资源设置边界；请求 ID 只用于本地排障，不用于认证或授权。
 - Shell 仅接受带协议/令牌认证的精确 `GET /ws` WebSocket 升级，同时最多允许四个已认证客户端；重连凭据只保存在内存中，拒绝响应中的请求 ID 仍只用于诊断。
+- Shell 只向 Renderer 发送经过净化且有大小边界的协议事件 envelope；上游 SDK 原始 payload 对象不会被传输或保留为 UI 状态。
 - Shell 只通过受信任 Electron 桥读取 Core 状态，且不会把展示的 Node ID 当作用户身份或认证凭据。
 - Shell 请求 ID 与运行 ID 只用于本地协议关联，不是认证、授权、持久身份或权限许可。
 - Windows 当前依赖用户数据目录继承的 ACL；未来安装器仍需显式配置并验证只有当前用户可访问的 ACL。
