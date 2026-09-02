@@ -146,8 +146,7 @@ function mapItem(rawItem: unknown): AgentItem {
     type: itemType,
     status: mapItemStatus(item?.status),
     title: itemType.replaceAll("_", " "),
-    text: typeof item?.text === "string" ? item.text : undefined,
-    raw: rawItem
+    text: typeof item?.text === "string" ? item.text : undefined
   };
 }
 

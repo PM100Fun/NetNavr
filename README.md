@@ -63,7 +63,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | Area | Responsibility | Current implementation | Status |
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; bounded read-only API contract | ✅ `v0.2.1` |
-| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; bounded diagnostics and Renderer state; authenticated loopback WebSocket lifecycle with capped reconnect; correlated run control; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
+| [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; bounded diagnostics, protocol envelopes, and Renderer state; authenticated loopback WebSocket lifecycle with capped reconnect; correlated run control; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
 | [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
@@ -89,6 +89,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Accepts WebSocket upgrades only for the exact `GET /ws` target, caps simultaneous authenticated clients at four, correlates rejected upgrades with server-generated request IDs, and shuts down idempotently.
 - Retries unexpected local WebSocket drops with one capped `250 ms` to `5 s` backoff timer, resets the backoff after a successful open, and cancels pending retries when the Renderer unmounts.
 - Limits live Agent output state to `256,000` UTF-16 code units with a visible truncation marker, keeps only the newest `500` event rows, and assigns monotonic row IDs.
+- Serializes outbound events through the shared protocol validator, removes upstream raw payload objects and unexpected fields, caps event text at `256,000` code units and diagnostics at `4,096`, and accepts only non-negative integer usage counters.
 - Uses Shell protocol v2 with validated request and run IDs, attaches every run-scoped event to one run, rejects overlapping starts, and only cancels the matching active run.
 - Keeps the Renderer on the acknowledged run and ignores stale run-scoped events instead of letting an old completion or cancellation change current UI state.
 - Starts the Electron-owned Agent Server on an OS-assigned loopback port and passes its ephemeral connection information through a context-isolated, sandboxed preload bridge instead of the renderer URL.
@@ -258,6 +259,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 - Core accepts no request bodies while its HTTP surface remains read-only; request IDs are diagnostic correlation values, not authentication credentials.
 - Shell's HTTP diagnostics accept no request bodies, bound parser and connection resources, and use request IDs only for local troubleshooting—not authentication or authorization.
 - Shell accepts WebSocket upgrades only for exact `GET /ws` requests with protocol/token authentication, caps simultaneous authenticated clients at four, keeps reconnect credentials in memory only, and treats rejection request IDs as diagnostics only.
+- Shell sends only sanitized, size-bounded protocol event envelopes to the Renderer; upstream SDK payload objects are not transported or retained as UI state.
 - Shell reads Core status only through its trusted Electron bridge and never treats the displayed Node ID as a user identity or authentication credential.
 - Shell request and run IDs provide local protocol correlation only; they are not authentication, authorization, durable identity, or permission grants.
 - Windows currently relies on inherited ACLs for the user data directory; a future installer still needs to configure and verify current-user-only ACLs explicitly.
