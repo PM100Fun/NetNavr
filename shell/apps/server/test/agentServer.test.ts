@@ -23,6 +23,7 @@ import {
 const sessionToken = "test_session_token_0123456789abcdef";
 const firstRequestId = "req_12345678-1234-4123-8123-123456789abc";
 const secondRequestId = "req_22345678-1234-4123-8123-123456789abc";
+const thirdRequestId = "req_32345678-1234-4123-8123-123456789abc";
 const staleRunId = "run_32345678-1234-4123-8123-123456789abc";
 const shellHttpRequestIdPattern = /^req_[0-9a-f-]{36}$/;
 
@@ -268,18 +269,18 @@ test("requires a session token and keeps execution policy on the server", async 
 
   const rejectedRun = waitForEvent(
     socket,
-    (event) => event.type === "run.rejected" && event.requestId === firstRequestId
+    (event) => event.type === "run.rejected" && event.requestId === thirdRequestId
   );
   socket.send(
     JSON.stringify({
       type: "run",
-      requestId: firstRequestId,
+      requestId: thirdRequestId,
       request: { provider: "mock", prompt: "must not replace the active run" }
     })
   );
   assert.deepEqual(await rejectedRun, {
     type: "run.rejected",
-    requestId: firstRequestId,
+    requestId: thirdRequestId,
     reason: "run_in_progress"
   });
 
@@ -309,8 +310,62 @@ test("requires a session token and keeps execution policy on the server", async 
     runId: activeRun.runId
   });
 
+  const retriedRun = collectUntil(socket, "turn.completed");
+  socket.send(
+    JSON.stringify({
+      type: "run",
+      requestId: thirdRequestId,
+      request: { provider: "mock", prompt: "accepted after overlap clears" }
+    })
+  );
+  const retriedEvents = await retriedRun;
+  assert.ok(
+    retriedEvents.some(
+      (event) => event.type === "run.started" && event.requestId === thirdRequestId
+    )
+  );
+
   socket.close();
   await once(socket, "close");
+});
+
+test("rejects accepted request IDs replayed across authenticated connections", async () => {
+  await withAgentServer(async (server) => {
+    const firstSocket = await openAuthenticatedSocket(server);
+    const secondSocket = await openAuthenticatedSocket(server);
+
+    try {
+      const completedRun = collectUntil(firstSocket, "turn.completed");
+      firstSocket.send(
+        JSON.stringify({
+          type: "run",
+          requestId: firstRequestId,
+          request: { provider: "mock", prompt: "accept once" }
+        })
+      );
+      await completedRun;
+
+      const replayRejected = waitForEvent(
+        secondSocket,
+        (event) => event.type === "run.rejected" && event.requestId === firstRequestId
+      );
+      secondSocket.send(
+        JSON.stringify({
+          type: "run",
+          requestId: firstRequestId,
+          request: { provider: "mock", prompt: "must not execute twice" }
+        })
+      );
+
+      assert.deepEqual(await replayRejected, {
+        type: "run.rejected",
+        requestId: firstRequestId,
+        reason: "request_replayed"
+      });
+    } finally {
+      await Promise.all([closeWebSocket(firstSocket), closeWebSocket(secondSocket)]);
+    }
+  });
 });
 
 async function assertRejectedUpgrade(

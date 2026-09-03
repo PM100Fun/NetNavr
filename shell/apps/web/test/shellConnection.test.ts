@@ -59,7 +59,7 @@ test("an authenticated connection reconnects once per close and resets after ope
   assert.equal(resolveCount, 1);
   assert.equal(sockets.length, 1);
   assert.deepEqual(sockets[0].protocols, [
-    "netnavr-shell-v2",
+    "netnavr-shell-v3",
     "netnavr-shell-auth.test_session_token_0123456789abcdef"
   ]);
 

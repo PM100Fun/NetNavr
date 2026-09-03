@@ -90,7 +90,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Retries unexpected local WebSocket drops with one capped `250 ms` to `5 s` backoff timer, resets the backoff after a successful open, and cancels pending retries when the Renderer unmounts.
 - Limits live Agent output state to `256,000` UTF-16 code units with a visible truncation marker, keeps only the newest `500` event rows, and assigns monotonic row IDs.
 - Serializes outbound events through the shared protocol validator, removes upstream raw payload objects and unexpected fields, caps event text at `256,000` code units and diagnostics at `4,096`, and accepts only non-negative integer usage counters.
-- Uses Shell protocol v2 with validated request and run IDs, attaches every run-scoped event to one run, rejects overlapping starts, and only cancels the matching active run.
+- Uses Shell protocol v3 with validated request and run IDs, attaches every run-scoped event to one run, remembers the most recent `512` accepted request IDs across authenticated connections for the current server process, rejects retained replays and overlapping starts, and only cancels the matching active run.
 - Keeps the Renderer on the acknowledged run and ignores stale run-scoped events instead of letting an old completion or cancellation change current UI state.
 - Starts the Electron-owned Agent Server on an OS-assigned loopback port and passes its ephemeral connection information through a context-isolated, sandboxed preload bridge instead of the renderer URL.
 - Applies a restrictive renderer CSP and sends only credential-free HTTPS links to the operating system.
@@ -261,7 +261,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 - Shell accepts WebSocket upgrades only for exact `GET /ws` requests with protocol/token authentication, caps simultaneous authenticated clients at four, keeps reconnect credentials in memory only, and treats rejection request IDs as diagnostics only.
 - Shell sends only sanitized, size-bounded protocol event envelopes to the Renderer; upstream SDK payload objects are not transported or retained as UI state.
 - Shell reads Core status only through its trusted Electron bridge and never treats the displayed Node ID as a user identity or authentication credential.
-- Shell request and run IDs provide local protocol correlation only; they are not authentication, authorization, durable identity, or permission grants.
+- Shell request and run IDs provide local protocol correlation only; they are not authentication, authorization, durable identity, or permission grants. Replay protection is bounded and process-local: it resets on server restart, and entries older than the most recent `512` accepted request IDs may be evicted.
 - Windows currently relies on inherited ACLs for the user data directory; a future installer still needs to configure and verify current-user-only ACLs explicitly.
 - `pay/` is a sandbox and must not process real funds.
 - Integrations involving important data, credentials, or irreversible actions should wait for the permission model.
