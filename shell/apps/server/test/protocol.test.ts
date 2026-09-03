@@ -14,9 +14,9 @@ import {
 const requestId = "req_12345678-1234-4123-8123-123456789abc";
 const runId = "run_22345678-1234-4123-8123-123456789abc";
 
-test("protocol v2 requires validated request and run correlation IDs", () => {
-  assert.equal(SHELL_PROTOCOL_VERSION, 2);
-  assert.equal(SHELL_WEBSOCKET_PROTOCOL, "netnavr-shell-v2");
+test("protocol v3 requires validated request and run correlation IDs", () => {
+  assert.equal(SHELL_PROTOCOL_VERSION, 3);
+  assert.equal(SHELL_WEBSOCKET_PROTOCOL, "netnavr-shell-v3");
 
   assert.equal(
     parseClientMessage({
@@ -48,7 +48,7 @@ test("protocol v2 requires validated request and run correlation IDs", () => {
   }
 });
 
-test("protocol v2 rejects incompatible or uncorrelated server events", () => {
+test("protocol v3 rejects incompatible or uncorrelated server events", () => {
   assert.equal(
     parseShellEvent({
       type: "shell.ready",
@@ -84,9 +84,25 @@ test("protocol v2 rejects incompatible or uncorrelated server events", () => {
     }).ok,
     false,
   );
+  assert.equal(
+    parseShellEvent({
+      type: "run.rejected",
+      requestId,
+      reason: "request_replayed",
+    }).ok,
+    true,
+  );
+  assert.equal(
+    parseShellEvent({
+      type: "run.rejected",
+      requestId,
+      reason: "request_duplicate",
+    }).ok,
+    false,
+  );
 });
 
-test("protocol v2 strips upstream payloads before serializing server events", () => {
+test("protocol v3 strips upstream payloads before serializing server events", () => {
   const source = {
     type: "item.completed",
     runId,
@@ -147,7 +163,7 @@ test("protocol v2 strips upstream payloads before serializing server events", ()
   });
 });
 
-test("protocol v2 rejects oversized text and invalid usage counters", () => {
+test("protocol v3 rejects oversized text and invalid usage counters", () => {
   assert.equal(
     parseShellEvent({
       type: "agent.delta",

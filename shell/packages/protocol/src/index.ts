@@ -58,7 +58,7 @@ export type ShellEvent =
   | {
       type: "run.rejected";
       requestId: ShellRequestId;
-      reason: "run_in_progress";
+      reason: "run_in_progress" | "request_replayed";
     }
   | {
       type: "cancel.rejected";
@@ -124,7 +124,7 @@ export type ClientMessage =
       runId: ShellRunId;
     };
 
-export const SHELL_PROTOCOL_VERSION = 2 as const;
+export const SHELL_PROTOCOL_VERSION = 3 as const;
 export const SHELL_WEBSOCKET_PROTOCOL = `netnavr-shell-v${SHELL_PROTOCOL_VERSION}`;
 export const SHELL_WEBSOCKET_AUTH_PREFIX = "netnavr-shell-auth.";
 export const SHELL_MAX_EVENT_TEXT_CODE_UNITS = 256_000;
@@ -241,7 +241,10 @@ export function parseShellEvent(value: unknown): ParseResult<ShellEvent> {
   }
 
   if (value.type === "run.rejected") {
-    if (!isRequestId(value.requestId) || value.reason !== "run_in_progress") {
+    if (
+      !isRequestId(value.requestId) ||
+      (value.reason !== "run_in_progress" && value.reason !== "request_replayed")
+    ) {
       return invalid("Invalid run.rejected event");
     }
     return { ok: true, value: { type: value.type, requestId: value.requestId, reason: value.reason } };

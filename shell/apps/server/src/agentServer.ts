@@ -21,6 +21,8 @@ import {
 } from "@netnavr/shell-protocol";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 
+import { createRecentRunRequestIds, type RecentRunRequestIds } from "./recentRunRequests.js";
+
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8787;
 const MAX_WEBSOCKET_PAYLOAD_BYTES = 128 * 1024;
@@ -79,6 +81,7 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
   const router = new ModelRouter();
   router.register(new MockAgent());
   router.register(new CodexAgent());
+  const recentRunRequestIds = createRecentRunRequestIds();
 
   const server = http.createServer(
     {
@@ -149,6 +152,7 @@ export async function startAgentServer(options: AgentServerOptions = {}): Promis
           activeRun = run;
         },
         router,
+        recentRunRequestIds,
         workspaceRoot,
         sandboxMode,
         approvalPolicy
@@ -200,6 +204,7 @@ type MessageContext = {
   getActiveRun: () => ActiveRun | null;
   setActiveRun: (run: ActiveRun | null) => void;
   router: ModelRouter;
+  recentRunRequestIds: RecentRunRequestIds;
   workspaceRoot: string;
   sandboxMode: SandboxMode;
   approvalPolicy: ApprovalPolicy;
@@ -232,11 +237,17 @@ async function handleClientMessage(data: RawData, socket: WebSocket, context: Me
     return;
   }
 
+  if (context.recentRunRequestIds.has(message.requestId)) {
+    send(socket, { type: "run.rejected", requestId: message.requestId, reason: "request_replayed" });
+    return;
+  }
+
   if (context.getActiveRun()) {
     send(socket, { type: "run.rejected", requestId: message.requestId, reason: "run_in_progress" });
     return;
   }
 
+  context.recentRunRequestIds.remember(message.requestId);
   const runId = createRunId();
   const activeAbort = new AbortController();
   context.setActiveRun({ runId, controller: activeAbort });
