@@ -64,7 +64,7 @@ The table below describes what can be inspected in the current source tree. Prod
 | :--- | :--- | :--- | :---: |
 | [`core/`](./core) | Shared runtime, persistent state, and policy boundary | Loopback-only HTTP; SQLite schema v1; persistent Node ID; single-owner data directory; bounded read-only API contract | ✅ `v0.2.1` |
 | [`shell/`](./shell) | Replaceable human interaction surface | Electron / React / TypeScript; bounded diagnostics, protocol envelopes, and Renderer state; authenticated loopback WebSocket lifecycle with capped reconnect; correlated run control; read-only Core and Node status; Mock and Codex routing | 🚧 Prototype |
-| [`pay/`](./pay) | Payment behavior isolated from the general runtime | SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
+| [`pay/`](./pay) | Payment behavior isolated from the general runtime | Bounded loopback HTTP; SQLite sandbox ledger; idempotent creation; sandbox channel; event-bound signed webhooks | 🧪 Sandbox only |
 
 <details>
 <summary><b>📦 Current implementation boundaries</b></summary>
@@ -103,6 +103,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Provides a testable sandbox payment slice, not production payment infrastructure.
 - Keeps payment behavior separate from Core's shared-runtime responsibilities.
 - Accepts only the numeric loopback host `127.0.0.1` and defaults to port `8788`, separate from Shell.
+- Bounds request headers and connection lifetimes, caps request bodies at 1 MiB, rejects bodies on bodyless routes, and returns no-store/nosniff JSON responses.
 - Binds every webhook event ID to its original type, channel, and order; conflicting reuse fails closed.
 
 </details>
@@ -263,7 +264,7 @@ NetNavr currently benefits most from reproducible bug reports, small focused exp
 - Shell reads Core status only through its trusted Electron bridge and never treats the displayed Node ID as a user identity or authentication credential.
 - Shell request and run IDs provide local protocol correlation only; they are not authentication, authorization, durable identity, or permission grants. Replay protection is bounded and process-local: it resets on server restart, and entries older than the most recent `512` accepted request IDs may be evicted.
 - Windows currently relies on inherited ACLs for the user data directory; a future installer still needs to configure and verify current-user-only ACLs explicitly.
-- `pay/` is a sandbox and must not process real funds.
+- `pay/` is a loopback-only sandbox with bounded HTTP resources and must not process real funds.
 - Integrations involving important data, credentials, or irreversible actions should wait for the permission model.
 
 ## 📄 License

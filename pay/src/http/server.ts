@@ -1,30 +1,57 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type OutgoingHttpHeaders,
+  type ServerResponse,
+} from "node:http";
 import type { PaymentService } from "../application/payment-service.ts";
 import { AppError, asAppError } from "../core/errors.ts";
 import type { PaymentOrder } from "../core/payment.ts";
 import { verifyWebhookSignature } from "../security/webhook-signature.ts";
 import { PAY_SERVICE_NAME, PAY_SERVICE_VERSION } from "../version.ts";
 
-const MAX_BODY_SIZE = 1_048_576;
+export const PAY_MAX_HEADER_BYTES = 8 * 1024;
+export const PAY_MAX_REQUEST_BODY_BYTES = 1_048_576;
+export const PAY_HEADERS_TIMEOUT_MS = 5_000;
+export const PAY_REQUEST_TIMEOUT_MS = 10_000;
+export const PAY_KEEP_ALIVE_TIMEOUT_MS = 5_000;
+export const PAY_MAX_REQUESTS_PER_SOCKET = 100;
 
 export function createHttpServer(options: {
   payments: PaymentService;
   sandboxWebhookSecret: string;
 }) {
-  return createServer(async (request, response) => {
-    try {
-      await routeRequest(request, response, options);
-    } catch (error) {
-      const appError = asAppError(error);
-      sendJson(response, appError.httpStatus, {
-        error: {
-          code: appError.code,
-          message: appError.message,
-          ...(appError.details ? { details: appError.details } : {}),
-        },
-      });
-    }
-  });
+  const server = createServer(
+    {
+      headersTimeout: PAY_HEADERS_TIMEOUT_MS,
+      insecureHTTPParser: false,
+      keepAliveTimeout: PAY_KEEP_ALIVE_TIMEOUT_MS,
+      maxHeaderSize: PAY_MAX_HEADER_BYTES,
+      requestTimeout: PAY_REQUEST_TIMEOUT_MS,
+      requireHostHeader: true,
+    },
+    async (request, response) => {
+      try {
+        await routeRequest(request, response, options);
+      } catch (error) {
+        const appError = asAppError(error);
+        sendJson(
+          response,
+          appError.httpStatus,
+          {
+            error: {
+              code: appError.code,
+              message: appError.message,
+              ...(appError.details ? { details: appError.details } : {}),
+            },
+          },
+          shouldCloseConnection(appError) ? { connection: "close" } : {},
+        );
+      }
+    },
+  );
+  server.maxRequestsPerSocket = PAY_MAX_REQUESTS_PER_SOCKET;
+  return server;
 }
 
 async function routeRequest(
@@ -37,6 +64,21 @@ async function routeRequest(
 ): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", "http://netnavr.local");
+  const routeAcceptsBody =
+    method === "POST" &&
+    (url.pathname === "/v1/orders" || url.pathname === "/v1/webhooks/sandbox");
+
+  if (!routeAcceptsBody && requestHasBody(request)) {
+    request.resume();
+    throw new AppError(
+      "REQUEST_BODY_NOT_ALLOWED",
+      "This Pay route does not accept a request body",
+      413,
+    );
+  }
+  if (routeAcceptsBody) {
+    assertDeclaredBodyWithinLimit(request);
+  }
 
   if (method === "GET" && url.pathname === "/") {
     sendJson(response, 200, {
@@ -135,19 +177,40 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 }
 
 async function readBody(request: IncomingMessage): Promise<Buffer> {
+  assertDeclaredBodyWithinLimit(request);
+
   const chunks: Buffer[] = [];
   let size = 0;
 
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_BODY_SIZE) {
-      throw new AppError("BODY_TOO_LARGE", "Request body exceeds 1 MiB", 413);
+    if (size > PAY_MAX_REQUEST_BODY_BYTES) {
+      throw bodyTooLargeError();
     }
     chunks.push(buffer);
   }
 
   return Buffer.concat(chunks);
+}
+
+function assertDeclaredBodyWithinLimit(request: IncomingMessage): void {
+  const declaredLength = request.headers["content-length"];
+  if (declaredLength === undefined) return;
+
+  const values = Array.isArray(declaredLength)
+    ? declaredLength
+    : [declaredLength];
+  const tooLarge = values.some((value) => {
+    const normalized = value.trim();
+    if (!/^\d+$/.test(normalized)) return true;
+    const length = Number(normalized);
+    return !Number.isSafeInteger(length) || length > PAY_MAX_REQUEST_BODY_BYTES;
+  });
+  if (!tooLarge) return;
+
+  request.resume();
+  throw bodyTooLargeError();
 }
 
 function parseJson(body: Buffer): unknown {
@@ -187,12 +250,41 @@ function sendJson(
   response: ServerResponse,
   statusCode: number,
   body: unknown,
+  additionalHeaders: OutgoingHttpHeaders = {},
 ): void {
   const payload = JSON.stringify(body);
   response.writeHead(statusCode, {
+    ...additionalHeaders,
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
     "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
   });
   response.end(payload);
+}
+
+function requestHasBody(request: IncomingMessage): boolean {
+  if (request.headers["transfer-encoding"] !== undefined) return true;
+
+  const contentLength = request.headers["content-length"];
+  if (contentLength === undefined) return false;
+
+  const values = Array.isArray(contentLength) ? contentLength : [contentLength];
+  return values.some((value) => {
+    const normalized = value.trim();
+    if (!/^\d+$/.test(normalized)) return true;
+    const length = Number(normalized);
+    return !Number.isSafeInteger(length) || length > 0;
+  });
+}
+
+function bodyTooLargeError(): AppError {
+  return new AppError("BODY_TOO_LARGE", "Request body exceeds 1 MiB", 413);
+}
+
+function shouldCloseConnection(error: AppError): boolean {
+  return (
+    error.code === "BODY_TOO_LARGE" ||
+    error.code === "REQUEST_BODY_NOT_ALLOWED"
+  );
 }
