@@ -105,6 +105,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Accepts only the numeric loopback host `127.0.0.1` and defaults to port `8788`, separate from Shell.
 - Bounds request headers and connection lifetimes, caps request bodies at 1 MiB, rejects bodies on bodyless routes, and returns no-store/nosniff JSON responses.
 - Binds every webhook event ID to its original type, channel, and order; conflicting reuse fails closed.
+- Validates order and signed webhook JSON types before business processing; malformed payloads return 422 without creating an order or applying a payment event.
 
 </details>
 
