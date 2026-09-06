@@ -4,7 +4,7 @@ import {
   type OutgoingHttpHeaders,
   type ServerResponse,
 } from "node:http";
-import type { PaymentService } from "../application/payment-service.ts";
+import type { CreateOrderInput, PaymentService } from "../application/payment-service.ts";
 import { AppError, asAppError } from "../core/errors.ts";
 import type { PaymentOrder } from "../core/payment.ts";
 import { verifyWebhookSignature } from "../security/webhook-signature.ts";
@@ -105,14 +105,11 @@ async function routeRequest(
     }
 
     const body = await readJsonBody(request);
+    if (!isCreateOrderInput(body)) {
+      throw new AppError("INVALID_ORDER", "Order payload contains invalid field types", 422);
+    }
     const result = await options.payments.createOrder(
-      body as {
-        merchantOrderId: string;
-        amount: number;
-        currency?: string;
-        description: string;
-        channel?: string;
-      },
+      body,
       idempotencyKey,
     );
     sendJson(response, result.reused ? 200 : 201, {
@@ -136,17 +133,15 @@ async function routeRequest(
       headerValue(request, "x-netnavr-signature"),
       options.sandboxWebhookSecret,
     );
-    const body = parseJson(rawBody) as {
-      id?: string;
-      type?: string;
-      data?: { orderId?: string; externalId?: string };
-    };
+    const body = parseJson(rawBody);
 
     if (
+      !isRecord(body) ||
       body.type !== "payment.succeeded" ||
-      !body.id ||
-      !body.data?.orderId ||
-      !body.data.externalId
+      !isNonBlankString(body.id) ||
+      !isRecord(body.data) ||
+      !isNonBlankString(body.data.orderId) ||
+      !isNonBlankString(body.data.externalId)
     ) {
       throw new AppError(
         "INVALID_WEBHOOK",
@@ -170,6 +165,25 @@ async function routeRequest(
   }
 
   throw new AppError("ROUTE_NOT_FOUND", "Route was not found", 404);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isCreateOrderInput(value: unknown): value is CreateOrderInput {
+  return (
+    isRecord(value) &&
+    typeof value.merchantOrderId === "string" &&
+    typeof value.amount === "number" &&
+    typeof value.description === "string" &&
+    (value.currency === undefined || typeof value.currency === "string") &&
+    (value.channel === undefined || typeof value.channel === "string")
+  );
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {

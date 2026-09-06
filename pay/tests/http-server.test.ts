@@ -16,6 +16,7 @@ import {
   PAY_REQUEST_TIMEOUT_MS,
 } from "../src/http/server.ts";
 import { SqliteOrderRepository } from "../src/ledger/sqlite-order-repository.ts";
+import { signWebhook } from "../src/security/webhook-signature.ts";
 import {
   PAY_SERVICE_NAME,
   PAY_SERVICE_VERSION,
@@ -123,6 +124,88 @@ test("rejects declared Pay request bodies above one MiB", async () => {
     });
   });
 });
+
+const validOrder = { merchantOrderId: "http-order", amount: 100, description: "Test" };
+
+test("rejects invalid order JSON types without consuming the idempotency key", async () => {
+  await withPayServer(async (_server, origin) => {
+    for (const value of [
+      null, [], true, 1, "order",
+      ...["merchantOrderId", "description", "currency", "channel"].flatMap(
+        (field) => [null, 42, true, [], {}].map(
+          (invalid) => ({ ...validOrder, [field]: invalid }),
+        ),
+      ),
+      { ...validOrder, amount: "100" },
+    ]) {
+      const response = await postJson(origin, "/v1/orders", value);
+      assert.equal(response.status, 422, JSON.stringify(value));
+      assert.equal((await response.json()).error.code, "INVALID_ORDER");
+    }
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(created.status, 201);
+    const first = await created.json();
+    assert.equal(first.order.status, "PENDING");
+    const replay = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(replay.status, 200);
+    const second = await replay.json();
+    assert.equal(second.reused, true);
+    assert.equal(second.order.id, first.order.id);
+  });
+});
+
+test("rejects malformed signed webhook types before changing the order", async () => {
+  await withPayServer(async (_server, origin) => {
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    const { order } = await created.json();
+    const validEvent = {
+      id: "evt-http-validation",
+      type: "payment.succeeded",
+      data: { orderId: order.id, externalId: order.externalId },
+    };
+    const invalidEvents = [
+      null, [], true, 42, "event",
+      ...[null, [], true, 42, "data"].map((data) => ({ ...validEvent, data })),
+      ...[null, [], {}, true, 42, "", "   "].flatMap((value) => [
+        { ...validEvent, id: value },
+        { ...validEvent, data: { ...validEvent.data, orderId: value } },
+        { ...validEvent, data: { ...validEvent.data, externalId: value } },
+      ]),
+    ];
+    for (const value of invalidEvents) {
+      const response = await postJson(origin, "/v1/webhooks/sandbox", value, true);
+      assert.equal(response.status, 422, JSON.stringify(value));
+      assert.equal((await response.json()).error.code, "INVALID_WEBHOOK");
+      const current = await fetch(`${origin}/v1/orders/${order.id}`);
+      assert.equal((await current.json()).order.status, "PENDING");
+    }
+    const unsigned = await postJson(origin, "/v1/webhooks/sandbox", null);
+    assert.equal(unsigned.status, 401);
+    assert.equal((await unsigned.json()).error.code, "MISSING_WEBHOOK_SIGNATURE");
+    for (const duplicate of [false, true]) {
+      const paid = await postJson(origin, "/v1/webhooks/sandbox", validEvent, true);
+      assert.equal(paid.status, 200);
+      const result = await paid.json();
+      assert.equal(result.duplicate, duplicate);
+      assert.equal(result.order.status, "PAID");
+    }
+  });
+});
+
+function postJson(origin: string, route: string, value: unknown, signed = false) {
+  const body = JSON.stringify(value);
+  return fetch(origin + route, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": "http-validation-key",
+      ...(signed ? {
+        "x-netnavr-signature": signWebhook(Buffer.from(body), "http-test-secret"),
+      } : {}),
+    },
+    body,
+  });
+}
 
 async function withPayServer(
   run: (server: Server, origin: string) => Promise<void>,
