@@ -192,6 +192,40 @@ test("rejects malformed signed webhook types before changing the order", async (
   });
 });
 
+test("rejects malformed order path encoding while preserving valid lookups", async () => {
+  await withPayServer(async (_server, origin) => {
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(created.status, 201);
+    const { order } = await created.json();
+    for (const id of ["%", "%2", "%GG", "%FF", "%C3%28", "%ED%A0%80"]) {
+      const response = await fetch(`${origin}/v1/orders/${id}`);
+      assert.equal(response.status, 400, id);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      assert.deepEqual(await response.json(), {
+        error: {
+          code: "INVALID_ORDER_ID",
+          message: "Order ID must use valid URL encoding",
+        },
+      });
+    }
+    const encodedId = Array.from(order.id as string)
+      .map((char) => `%${char.charCodeAt(0).toString(16)}`).join("");
+    for (const id of [order.id, encodedId]) {
+      const response = await fetch(`${origin}/v1/orders/${id}`);
+      assert.equal(response.status, 200);
+      assert.deepEqual((await response.json()).order, order);
+    }
+    for (const id of ["missing", "%25", "%2525", "%E4%B8%AD"]) {
+      const response = await fetch(`${origin}/v1/orders/${id}`);
+      assert.equal(response.status, 404, id);
+      assert.equal((await response.json()).error.code, "ORDER_NOT_FOUND");
+    }
+    const health = await fetch(`${origin}/health`);
+    assert.equal(health.status, 200);
+  });
+});
+
 function postJson(origin: string, route: string, value: unknown, signed = false) {
   const body = JSON.stringify(value);
   return fetch(origin + route, {

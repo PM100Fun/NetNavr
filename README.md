@@ -106,6 +106,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Bounds request headers and connection lifetimes, caps request bodies at 1 MiB, rejects bodies on bodyless routes, and returns no-store/nosniff JSON responses.
 - Binds every webhook event ID to its original type, channel, and order; conflicting reuse fails closed.
 - Validates order and signed webhook JSON types before business processing; malformed payloads return 422 without creating an order or applying a payment event.
+- Rejects malformed URL encoding in order lookup IDs with 400; valid encoded IDs retain normal lookup behavior.
 
 </details>
 

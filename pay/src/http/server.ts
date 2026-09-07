@@ -121,7 +121,14 @@ async function routeRequest(
 
   const orderMatch = url.pathname.match(/^\/v1\/orders\/([^/]+)$/);
   if (method === "GET" && orderMatch) {
-    const order = options.payments.getOrder(decodeURIComponent(orderMatch[1]));
+    let orderId: string;
+    try {
+      orderId = decodeURIComponent(orderMatch[1]);
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error;
+      throw new AppError("INVALID_ORDER_ID", "Order ID must use valid URL encoding", 400);
+    }
+    const order = options.payments.getOrder(orderId);
     sendJson(response, 200, { order: publicOrder(order) });
     return;
   }
