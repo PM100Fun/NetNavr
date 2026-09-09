@@ -236,7 +236,9 @@ function assertDeclaredBodyWithinLimit(request: IncomingMessage): void {
 
 function parseJson(body: Buffer): unknown {
   try {
-    return JSON.parse(body.toString("utf8"));
+    // Preserve the existing rejection of a leading BOM while decoding strictly.
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(body);
+    return JSON.parse(text);
   } catch {
     throw new AppError("INVALID_JSON", "Request body must be valid JSON", 400);
   }

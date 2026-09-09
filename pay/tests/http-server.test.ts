@@ -226,6 +226,101 @@ test("rejects malformed order path encoding while preserving valid lookups", asy
   });
 });
 
+const invalidUtf8 = [
+  [0xff], [0x80], [0xc3], [0xc3, 0x28], [0xc0, 0xaf],
+  [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80],
+];
+
+test("rejects invalid UTF-8 orders without consuming order identity", async () => {
+  await withPayServer(async (_server, origin) => {
+    for (const bytes of invalidUtf8) {
+      const body = Buffer.concat([
+        Buffer.from('{"merchantOrderId":"http-order","amount":100,"description":"'),
+        Buffer.from(bytes),
+        Buffer.from('"}'),
+      ]);
+      await assertInvalidJson(await postBytes(origin, "/v1/orders", body));
+    }
+    const valid = { ...validOrder, description: "中文 café 😀 \uFFFD" };
+    const body = Buffer.from(JSON.stringify(valid));
+    await assertInvalidJson(await postBytes(origin, "/v1/orders",
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), body])));
+    const created = await postBytes(origin, "/v1/orders", body);
+    assert.equal(created.status, 201);
+    const first = await created.json();
+    assert.equal(first.order.description, valid.description);
+    const replay = await postBytes(origin, "/v1/orders", body);
+    assert.equal(replay.status, 200);
+    const second = await replay.json();
+    assert.equal(second.reused, true);
+    assert.deepEqual(second.order, first.order);
+  });
+});
+
+test("verifies raw webhook bytes before rejecting invalid UTF-8", async () => {
+  await withPayServer(async (_server, origin) => {
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(created.status, 201);
+    const { order } = await created.json();
+    for (const bytes of invalidUtf8) {
+      const body = Buffer.concat([
+        Buffer.from('{"id":"'),
+        Buffer.from(bytes),
+        Buffer.from('","type":"payment.succeeded","data":' +
+          JSON.stringify({ orderId: order.id, externalId: order.externalId }) + '}'),
+      ]);
+      const unsigned = await postBytes(origin, "/v1/webhooks/sandbox", body);
+      assert.equal(unsigned.status, 401);
+      assert.equal((await unsigned.json()).error.code, "MISSING_WEBHOOK_SIGNATURE");
+      const wrongSignature = await fetch(origin + "/v1/webhooks/sandbox", {
+        method: "POST",
+        headers: { "x-netnavr-signature": signWebhook(Buffer.from("different"), "http-test-secret") },
+        body,
+      });
+      assert.equal(wrongSignature.status, 401);
+      assert.equal((await wrongSignature.json()).error.code, "INVALID_WEBHOOK_SIGNATURE");
+      await assertInvalidJson(await postBytes(origin, "/v1/webhooks/sandbox", body, true));
+      const current = await fetch(`${origin}/v1/orders/${order.id}`);
+      assert.deepEqual((await current.json()).order, order);
+    }
+    const event = Buffer.from(JSON.stringify({
+      id: "事件-😀-\uFFFD",
+      type: "payment.succeeded",
+      data: { orderId: order.id, externalId: order.externalId },
+    }));
+    for (const duplicate of [false, true]) {
+      const response = await postBytes(origin, "/v1/webhooks/sandbox", event, true);
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.duplicate, duplicate);
+      assert.equal(result.order.status, "PAID");
+    }
+  });
+});
+
+async function assertInvalidJson(response: Response) {
+  assert.equal(response.status, 400);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(await response.json(), {
+    error: { code: "INVALID_JSON", message: "Request body must be valid JSON" },
+  });
+}
+
+function postBytes(origin: string, route: string, body: Buffer, signed = false) {
+  return fetch(origin + route, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": "http-validation-key",
+      ...(signed ? {
+        "x-netnavr-signature": signWebhook(body, "http-test-secret"),
+      } : {}),
+    },
+    body,
+  });
+}
+
 function postJson(origin: string, route: string, value: unknown, signed = false) {
   const body = JSON.stringify(value);
   return fetch(origin + route, {
