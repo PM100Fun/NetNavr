@@ -80,6 +80,20 @@ async function routeRequest(
     assertDeclaredBodyWithinLimit(request);
   }
 
+  const orderMatch = url.pathname.match(/^\/v1\/orders\/([^/]+)$/);
+  const allowedMethod =
+    url.pathname === "/" || url.pathname === "/health" || orderMatch
+      ? "GET"
+      : url.pathname === "/v1/orders" || url.pathname === "/v1/webhooks/sandbox"
+        ? "POST"
+        : undefined;
+  if (allowedMethod && method !== allowedMethod) {
+    sendJson(response, 405, {
+      error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed" },
+    }, { allow: allowedMethod });
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/") {
     sendJson(response, 200, {
       name: PAY_SERVICE_NAME,
@@ -119,7 +133,6 @@ async function routeRequest(
     return;
   }
 
-  const orderMatch = url.pathname.match(/^\/v1\/orders\/([^/]+)$/);
   if (method === "GET" && orderMatch) {
     let orderId: string;
     try {
