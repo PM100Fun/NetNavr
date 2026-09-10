@@ -127,6 +127,59 @@ test("rejects declared Pay request bodies above one MiB", async () => {
 
 const validOrder = { merchantOrderId: "http-order", amount: 100, description: "Test" };
 
+test("reports allowed methods for known Pay routes without changing orders", async () => {
+  await withPayServer(async (_server, origin) => {
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(created.status, 201);
+    const { order } = await created.json();
+    for (const [route, allowed] of [
+      ["/", "GET"], ["/health?probe=1", "GET"],
+      ["/v1/orders", "POST"], [`/v1/orders/${order.id}`, "GET"],
+      ["/v1/orders/missing", "GET"], ["/v1/webhooks/sandbox", "POST"],
+    ]) {
+      for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
+        if (method === allowed) continue;
+        const response = await fetch(origin + route, { method });
+        assert.equal(response.status, 405, `${method} ${route}`);
+        assert.equal(response.headers.get("allow"), allowed);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+        assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+        if (method === "HEAD") {
+          assert.equal(await response.text(), "");
+        } else {
+          assert.deepEqual(await response.json(), {
+            error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed" },
+          });
+        }
+      }
+    }
+    for (const method of ["GET", "POST", "DELETE", "OPTIONS"]) {
+      const response = await fetch(origin + "/unknown", { method });
+      assert.equal(response.status, 404);
+      assert.equal(response.headers.get("allow"), null);
+      assert.equal((await response.json()).error.code, "ROUTE_NOT_FOUND");
+    }
+    const current = await fetch(`${origin}/v1/orders/${order.id}`);
+    assert.equal(current.status, 200);
+    assert.deepEqual((await current.json()).order, order);
+    const replay = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).reused, true);
+  });
+});
+
+test("preserves request-body rejection before Pay method errors", async () => {
+  await withPayServer(async (_server, origin) => {
+    for (const route of ["/health", "/v1/orders", "/v1/webhooks/sandbox"]) {
+      const response = await fetch(origin + route, { method: "PUT", body: "{}" });
+      assert.equal(response.status, 413);
+      assert.equal(response.headers.get("connection"), "close");
+      assert.equal(response.headers.get("allow"), null);
+      assert.equal((await response.json()).error.code, "REQUEST_BODY_NOT_ALLOWED");
+    }
+  });
+});
+
 test("rejects invalid order JSON types without consuming the idempotency key", async () => {
   await withPayServer(async (_server, origin) => {
     for (const value of [

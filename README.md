@@ -108,6 +108,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Validates order and signed webhook JSON types before business processing; malformed payloads return 422 without creating an order or applying a payment event.
 - Rejects malformed URL encoding in order lookup IDs with 400; valid encoded IDs retain normal lookup behavior.
 - Rejects invalid UTF-8 JSON bodies with 400 before order or payment-event changes; webhook signatures are still verified over the original bytes first.
+- Returns 405 with an Allow header for unsupported methods on known routes; unknown routes remain 404 and request-body restrictions take precedence.
 
 </details>
 
