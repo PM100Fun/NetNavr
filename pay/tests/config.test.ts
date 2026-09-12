@@ -56,6 +56,28 @@ test("Pay rejects ambiguous or out-of-range ports", () => {
   }
 });
 
+test("Pay rejects explicitly blank webhook secrets in every environment", () => {
+  for (const secret of ["", " ", "\t\r\n", "\u00a0"]) {
+    for (const mode of [undefined, "development", "production"]) {
+      assertInvalidConfig(
+        { NODE_ENV: mode, NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET: secret },
+        "NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET must not be blank",
+      );
+    }
+  }
+});
+
+test("Pay preserves nonblank webhook secrets exactly", () => {
+  const secret = "  test-secret\t";
+  for (const mode of [undefined, "production"]) {
+    assert.equal(
+      loadConfig({ NODE_ENV: mode, NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET: secret })
+        .sandboxWebhookSecret,
+      secret,
+    );
+  }
+});
+
 test("Pay still requires an explicit production webhook secret", () => {
   assertInvalidConfig(
     { NODE_ENV: "production" },
