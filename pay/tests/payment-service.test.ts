@@ -6,6 +6,77 @@ import { SandboxChannel } from "../src/channels/sandbox-channel.ts";
 import { AppError } from "../src/core/errors.ts";
 import { SqliteOrderRepository } from "../src/ledger/sqlite-order-repository.ts";
 
+for (const persisted of [false, true]) {
+  test(`does not mark successful channel creation failed after a local error (persisted=${persisted})`, async (t) => {
+    const storageError = new Error("Injected local storage failure");
+    class FailingRepository extends SqliteOrderRepository {
+      override attachChannelPayment(
+        ...args: Parameters<SqliteOrderRepository["attachChannelPayment"]>
+      ): never {
+        if (persisted) super.attachChannelPayment(...args);
+        throw storageError;
+      }
+    }
+    const orders = new FailingRepository(":memory:");
+    t.after(() => orders.close());
+    let calls = 0;
+    const sandbox = new SandboxChannel();
+    const payments = new PaymentService({
+      merchantId: "merchant_test",
+      orders,
+      channels: new ChannelRegistry([{
+        name: "sandbox",
+        async createPayment(input) {
+          calls++;
+          return sandbox.createPayment(input);
+        },
+      }]),
+    });
+    const input = { merchantOrderId: "local-error", amount: 100, description: "Test" };
+    await assert.rejects(payments.createOrder(input, "local-error-key"),
+      (error: unknown) => error === storageError);
+    const stored = orders.findByIdempotencyKey("local-error-key")!;
+    assert.ok(stored);
+    assert.equal(stored.status, persisted ? "PENDING" : "CREATED");
+    assert.equal(stored.externalId, persisted ? `sbx_${stored.id}` : null);
+    const replay = await payments.createOrder(input, "local-error-key");
+    assert.equal(replay.reused, true);
+    assert.deepEqual(replay.order, stored);
+    assert.equal(calls, 1);
+    if (persisted) {
+      const paid = payments.handlePaymentSucceeded({
+        eventId: "local-error-event", channel: "sandbox",
+        orderId: stored.id, externalId: stored.externalId!,
+      });
+      assert.equal(paid.order.status, "PAID");
+    }
+  });
+}
+
+test("still marks channel failures failed without retrying the channel", async (t) => {
+  for (const error of [new Error("Channel failure"), new AppError("SANDBOX_FAILURE", "Rejected", 422)]) {
+    const orders = new SqliteOrderRepository(":memory:");
+    t.after(() => orders.close());
+    let calls = 0;
+    const payments = new PaymentService({
+      merchantId: "merchant_test", orders,
+      channels: new ChannelRegistry([{
+        name: "sandbox",
+        async createPayment() { calls++; throw error; },
+      }]),
+    });
+    const input = { merchantOrderId: "channel-error", amount: 100, description: "Test" };
+    await assert.rejects(payments.createOrder(input, "channel-error-key"), (caught: unknown) =>
+      error instanceof AppError ? caught === error :
+        caught instanceof AppError && caught.code === "CHANNEL_CREATE_FAILED" && caught.httpStatus === 502);
+    assert.equal(orders.findByIdempotencyKey("channel-error-key")!.status, "FAILED");
+    const replay = await payments.createOrder(input, "channel-error-key");
+    assert.equal(replay.reused, true);
+    assert.equal(replay.order.status, "FAILED");
+    assert.equal(calls, 1);
+  }
+});
+
 function createFixture() {
   const orders = new SqliteOrderRepository(":memory:");
   let tick = 0;

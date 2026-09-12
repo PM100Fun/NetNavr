@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ChannelRegistry } from "../channels/channel-registry.ts";
+import type { ChannelCreatePaymentResult } from "../channels/payment-channel.ts";
 import { AppError } from "../core/errors.ts";
 import {
   PAYMENT_STATUS,
@@ -94,21 +95,15 @@ export class PaymentService {
 
     this.#orders.create(order);
 
+    let channelPayment: ChannelCreatePaymentResult;
     try {
-      const channelPayment = await channel.createPayment({
+      channelPayment = await channel.createPayment({
         orderId: order.id,
         merchantOrderId: order.merchantOrderId,
         amount: order.amount,
         currency: order.currency,
         description: order.description,
       });
-      const pendingOrder = this.#orders.attachChannelPayment(
-        order.id,
-        channelPayment.externalId,
-        channelPayment.checkoutUrl,
-        this.#now().toISOString(),
-      );
-      return { reused: false, order: pendingOrder };
     } catch (error) {
       this.#orders.markFailed(order.id, this.#now().toISOString());
       if (error instanceof AppError) {
@@ -120,6 +115,15 @@ export class PaymentService {
         502,
       );
     }
+
+    // A local persistence error does not mean the channel payment failed.
+    const pendingOrder = this.#orders.attachChannelPayment(
+      order.id,
+      channelPayment.externalId,
+      channelPayment.checkoutUrl,
+      this.#now().toISOString(),
+    );
+    return { reused: false, order: pendingOrder };
   }
 
   getOrder(id: string): PaymentOrder {
