@@ -1,6 +1,6 @@
 {
   "name": "netnavr-pay",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "Merchant-owned payment connectivity for the NetNavr runtime.",
   "type": "module",

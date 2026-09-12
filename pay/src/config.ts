@@ -36,6 +36,14 @@ export function loadConfig(
   const sandboxWebhookSecret =
     environment.NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET ?? "local-sandbox-secret";
 
+  if (sandboxWebhookSecret.trim().length === 0) {
+    throw new AppError(
+      "INVALID_CONFIG",
+      "NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET must not be blank",
+      500,
+    );
+  }
+
   if (
     environment.NODE_ENV === "production" &&
     sandboxWebhookSecret === "local-sandbox-secret"
