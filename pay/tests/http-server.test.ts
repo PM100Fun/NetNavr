@@ -41,6 +41,42 @@ test("Pay HTTP metadata matches the package version", async () => {
   });
 });
 
+test("rejects invalid request targets and keeps valid targets working", async () => {
+  await withPayServer(async (server, origin) => {
+    const address = server.address() as AddressInfo;
+    for (const target of ["http://[/health", "http://localhost:99999/health", "//[/health"]) {
+      for (const method of ["GET", "POST"]) {
+        const response = await sendRawHttpRequest(address.address, address.port, [
+          `${method} ${target} HTTP/1.1`,
+          `Host: ${address.address}:${address.port}`,
+          "Connection: keep-alive",
+          ...(method === "POST" ? ["Content-Length: 2"] : []),
+          "", method === "POST" ? "{}" : "",
+        ].join("\r\n"));
+        assert.match(response, /^HTTP\/1\.1 400 /, target);
+        assert.match(response, /connection: close/i);
+        assert.match(response, /cache-control: no-store/i);
+        assert.match(response, /x-content-type-options: nosniff/i);
+        assert.deepEqual(parseRawJsonBody(response), {
+          error: { code: "INVALID_REQUEST_TARGET", message: "Request target is invalid" },
+        });
+      }
+    }
+    for (const target of ["/health?probe=1", `${origin}/health?probe=1`]) {
+      const response = await sendRawHttpRequest(address.address, address.port, [
+        `GET ${target} HTTP/1.1`,
+        `Host: ${address.address}:${address.port}`,
+        "Connection: close", "", "",
+      ].join("\r\n"));
+      assert.match(response, /^HTTP\/1\.1 200 /);
+      assert.deepEqual(parseRawJsonBody(response), { status: "ok" });
+    }
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(created.status, 201);
+    assert.equal((await created.json()).order.status, "PENDING");
+  });
+});
+
 test("bounds Pay HTTP parser and connection resources", async () => {
   await withPayServer(async (server) => {
     assert.equal(server.headersTimeout, PAY_HEADERS_TIMEOUT_MS);

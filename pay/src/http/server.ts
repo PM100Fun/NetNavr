@@ -63,7 +63,13 @@ async function routeRequest(
   },
 ): Promise<void> {
   const method = request.method ?? "GET";
-  const url = new URL(request.url ?? "/", "http://netnavr.local");
+  let url: URL;
+  try {
+    url = new URL(request.url ?? "/", "http://netnavr.local");
+  } catch {
+    request.resume();
+    throw new AppError("INVALID_REQUEST_TARGET", "Request target is invalid", 400);
+  }
   const routeAcceptsBody =
     method === "POST" &&
     (url.pathname === "/v1/orders" || url.pathname === "/v1/webhooks/sandbox");
@@ -320,6 +326,7 @@ function bodyTooLargeError(): AppError {
 
 function shouldCloseConnection(error: AppError): boolean {
   return (
+    error.code === "INVALID_REQUEST_TARGET" ||
     error.code === "BODY_TOO_LARGE" ||
     error.code === "REQUEST_BODY_NOT_ALLOWED"
   );
