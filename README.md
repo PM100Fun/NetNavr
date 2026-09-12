@@ -110,6 +110,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Rejects invalid UTF-8 JSON bodies with 400 before order or payment-event changes; webhook signatures are still verified over the original bytes first.
 - Returns 405 with an Allow header for unsupported methods on known routes; unknown routes remain 404 and request-body restrictions take precedence.
 - Returns 400 and closes the connection when the request target cannot be parsed as a URL.
+- Does not mark successful channel creation as failed when local persistence errors occur; preserves the recorded state without automatically recreating the payment. Recovery of unresolved CREATED orders remains unimplemented.
 
 </details>
 
