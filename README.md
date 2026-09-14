@@ -101,6 +101,7 @@ The table below describes what can be inspected in the current source tree. Prod
 ### Pay
 
 - Provides a testable sandbox payment slice, not production payment infrastructure.
+- Rejects repeated Idempotency-Key or webhook signature header fields with 400 and closes the connection before applying the corresponding order or event.
 - Rejects explicitly empty or whitespace-only webhook secrets at startup in every environment; nonblank secrets retain their exact bytes. Production mode also rejects the default development secret.
 - Keeps payment behavior separate from Core's shared-runtime responsibilities.
 - Accepts only the numeric loopback host `127.0.0.1` and defaults to port `8788`, separate from Shell.

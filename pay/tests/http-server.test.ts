@@ -163,6 +163,69 @@ test("rejects declared Pay request bodies above one MiB", async () => {
 
 const validOrder = { merchantOrderId: "http-order", amount: 100, description: "Test" };
 
+test("rejects duplicate idempotency headers without consuming order identity", async () => {
+  await withPayServer(async (server, origin) => {
+    const address = server.address() as AddressInfo;
+    const body = JSON.stringify(validOrder);
+    for (const second of ["http-validation-key", "another-validation-key"]) {
+      const response = await sendRawHttpRequest(address.address, address.port, [
+        "POST /v1/orders HTTP/1.1",
+        `Host: ${address.address}:${address.port}`,
+        "Idempotency-Key: http-validation-key",
+        `iDeMpOtEnCy-KeY: ${second}`,
+        `Content-Length: ${Buffer.byteLength(body)}`,
+        "Connection: keep-alive", "", body,
+      ].join("\r\n"));
+      assert.match(response, /^HTTP\/1\.1 400 /);
+      assert.match(response, /connection: close/i);
+      assert.deepEqual(parseRawJsonBody(response), {
+        error: { code: "DUPLICATE_HEADER", message: "idempotency-key header must occur only once" },
+      });
+    }
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(created.status, 201);
+    const replay = await postJson(origin, "/v1/orders", validOrder);
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).reused, true);
+  });
+});
+
+test("rejects duplicate signature headers without consuming payment events", async () => {
+  await withPayServer(async (server, origin) => {
+    const created = await postJson(origin, "/v1/orders", validOrder);
+    const { order } = await created.json();
+    const event = { id: "duplicate-header-event", type: "payment.succeeded",
+      data: { orderId: order.id, externalId: order.externalId } };
+    const body = JSON.stringify(event);
+    const signature = signWebhook(Buffer.from(body), "http-test-secret");
+    const address = server.address() as AddressInfo;
+    for (const second of [signature, "invalid"]) {
+      const response = await sendRawHttpRequest(address.address, address.port, [
+        "POST /v1/webhooks/sandbox HTTP/1.1",
+        `Host: ${address.address}:${address.port}`,
+        `X-NetNavr-Signature: ${signature}`,
+        `x-netnavr-signature: ${second}`,
+        `Content-Length: ${Buffer.byteLength(body)}`,
+        "Connection: keep-alive", "", body,
+      ].join("\r\n"));
+      assert.match(response, /^HTTP\/1\.1 400 /);
+      assert.match(response, /connection: close/i);
+      assert.deepEqual(parseRawJsonBody(response), {
+        error: { code: "DUPLICATE_HEADER", message: "x-netnavr-signature header must occur only once" },
+      });
+      const current = await fetch(`${origin}/v1/orders/${order.id}`);
+      assert.deepEqual((await current.json()).order, order);
+    }
+    for (const duplicate of [false, true]) {
+      const response = await postJson(origin, "/v1/webhooks/sandbox", event, true);
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.duplicate, duplicate);
+      assert.equal(result.order.status, "PAID");
+    }
+  });
+});
+
 test("reports allowed methods for known Pay routes without changing orders", async () => {
   await withPayServer(async (_server, origin) => {
     const created = await postJson(origin, "/v1/orders", validOrder);

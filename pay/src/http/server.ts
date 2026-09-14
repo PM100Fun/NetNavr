@@ -284,8 +284,16 @@ function headerValue(
   request: IncomingMessage,
   name: string,
 ): string | undefined {
-  const value = request.headers[name];
-  return Array.isArray(value) ? value[0] : value;
+  const values = request.headersDistinct[name];
+  if (values && values.length > 1) {
+    request.resume();
+    throw new AppError(
+      "DUPLICATE_HEADER",
+      `${name} header must occur only once`,
+      400,
+    );
+  }
+  return values?.[0];
 }
 
 function sendJson(
@@ -327,6 +335,7 @@ function bodyTooLargeError(): AppError {
 function shouldCloseConnection(error: AppError): boolean {
   return (
     error.code === "INVALID_REQUEST_TARGET" ||
+    error.code === "DUPLICATE_HEADER" ||
     error.code === "BODY_TOO_LARGE" ||
     error.code === "REQUEST_BODY_NOT_ALLOWED"
   );
