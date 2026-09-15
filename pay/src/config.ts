@@ -33,6 +33,13 @@ export function loadConfig(
   }
 
   const merchantId = environment.NETNAVR_PAY_MERCHANT_ID ?? "merchant_demo";
+  const databasePath = environment.NETNAVR_PAY_DB_PATH ?? "./data/netnavr-pay.sqlite";
+  if (merchantId.trim().length === 0) {
+    throw new AppError("INVALID_CONFIG", "NETNAVR_PAY_MERCHANT_ID must not be blank", 500);
+  }
+  if (databasePath.trim().length === 0) {
+    throw new AppError("INVALID_CONFIG", "NETNAVR_PAY_DB_PATH must not be blank", 500);
+  }
   const sandboxWebhookSecret =
     environment.NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET ?? "local-sandbox-secret";
 
@@ -59,7 +66,7 @@ export function loadConfig(
     host,
     port,
     merchantId,
-    databasePath: environment.NETNAVR_PAY_DB_PATH ?? "./data/netnavr-pay.sqlite",
+    databasePath,
     sandboxWebhookSecret,
   };
 }
