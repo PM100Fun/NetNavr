@@ -47,6 +47,30 @@ test("Pay rejects non-loopback and hostname-based bind addresses", () => {
   }
 });
 
+for (const name of ["NETNAVR_PAY_MERCHANT_ID", "NETNAVR_PAY_DB_PATH"]) {
+  test(`Pay rejects explicitly blank ${name} in every environment`, () => {
+    for (const value of ["", " ", "\t\r\n", "\u00a0"]) {
+      for (const mode of [undefined, "development", "production"]) {
+        assertInvalidConfig(
+          { NODE_ENV: mode, NETNAVR_PAY_SANDBOX_WEBHOOK_SECRET: "test-secret", [name]: value },
+          `${name} must not be blank`,
+        );
+      }
+    }
+  });
+}
+
+test("Pay preserves explicit nonblank identity and database configuration", () => {
+  for (const databasePath of ["./data with spaces/pay.sqlite", "  pay.sqlite  ", ":memory:"]) {
+    const config = loadConfig({
+      NETNAVR_PAY_MERCHANT_ID: " merchant_test ",
+      NETNAVR_PAY_DB_PATH: databasePath,
+    });
+    assert.equal(config.merchantId, " merchant_test ");
+    assert.equal(config.databasePath, databasePath);
+  }
+});
+
 test("Pay rejects ambiguous or out-of-range ports", () => {
   for (const port of ["", "0", "65536", "8788.0", "1e3", " 8788", "not-a-port"]) {
     assertInvalidConfig(
