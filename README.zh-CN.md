@@ -71,6 +71,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 
 ### Core
 
+- 在打开存储前拒绝空或仅含空白字符的 `NETNAVR_CORE_DATA_DIR`；未设置时的默认值和非空白路径保持不变。
 - 为一次本地安装创建稳定、非秘密的 Node ID，并持久化到 SQLite。
 - 通过 `GET /v1/health` 与 `GET /v1/node` 提供只读检查。
 - 每个响应都包含服务端生成的请求 ID，结构化错误 envelope 同时携带该 ID。

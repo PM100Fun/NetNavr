@@ -71,6 +71,7 @@ The table below describes what can be inspected in the current source tree. Prod
 
 ### Core
 
+- Rejects empty and whitespace-only `NETNAVR_CORE_DATA_DIR` values before opening storage; omitted defaults and nonblank paths are preserved.
 - Creates a stable, non-secret Node ID for one local installation and persists it in SQLite.
 - Exposes read-only checks through `GET /v1/health` and `GET /v1/node`.
 - Adds a server-generated request ID to every response and includes it in structured error envelopes.
