@@ -140,12 +140,14 @@ function routeRequest(
   try {
     pathname = new URL(request.url ?? "/", `http://${CORE_HOST}`).pathname;
   } catch {
+    request.resume();
     writeError(
       response,
       400,
       requestId,
       "invalid_request_target",
       "Request target is invalid",
+      { connection: "close" },
     );
     return;
   }
