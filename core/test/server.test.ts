@@ -284,6 +284,50 @@ test("unknown routes return a structured 404", async () => {
   });
 });
 
+test("invalid request targets return 400 and close the connection", async () => {
+  await withCore(async (core) => {
+    for (const target of [
+      "http://[/v1/health",
+      "http://localhost:99999/v1/health",
+      "//[/v1/health",
+    ]) {
+      const response = await sendRawHttpRequest(
+        core.port,
+        [
+          `GET ${target} HTTP/1.1`,
+          `Host: ${CORE_HOST}:${core.port}`,
+          "Connection: keep-alive",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+
+      assert.match(response, /^HTTP\/1\.1 400 /, target);
+      assert.match(response, /connection: close/i, target);
+      assert.match(response, /"code":"invalid_request_target"/, target);
+      assert.match(response, /"message":"Request target is invalid"/, target);
+    }
+
+    for (const target of [
+      "/v1/health?probe=1",
+      `${core.origin}/v1/health?probe=1`,
+    ]) {
+      const response = await sendRawHttpRequest(
+        core.port,
+        [
+          `GET ${target} HTTP/1.1`,
+          `Host: ${CORE_HOST}:${core.port}`,
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+
+      assert.match(response, /^HTTP\/1\.1 200 /, target);
+    }
+  });
+});
+
 test("known read-only routes reject unsupported methods", async () => {
   await withCore(async (core) => {
     const response = await fetch(`${core.origin}/v1/health`, { method: "POST" });

@@ -76,6 +76,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Exposes read-only checks through `GET /v1/health` and `GET /v1/node`.
 - Adds a server-generated request ID to every response and includes it in structured error envelopes.
 - Rejects request bodies, unsupported methods on known routes, and headers above the Core limit; applies bounded header, request, and keep-alive timeouts.
+- Returns 400 and closes the connection when the request target cannot be parsed as a URL.
 - Fails closed on database corruption, migration-history mismatch, a newer schema version, or an invalid Node ID.
 - Acquires an exclusive runtime lock before opening the primary database.
 - Preserves the database and Node ID after unexpected process termination.
