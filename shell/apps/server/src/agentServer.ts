@@ -396,7 +396,12 @@ function normalizeLoopbackHost(host: string | undefined): string {
 }
 
 function normalizePort(value: number | string | undefined): number {
-  if (value === undefined || value === "") return DEFAULT_PORT;
+  if (value === undefined) return DEFAULT_PORT;
+
+  if (typeof value === "string" && !/^\d+$/.test(value)) {
+    throw new Error("Agent server port must be an integer between 0 and 65535");
+  }
+
   const port = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error("Agent server port must be an integer between 0 and 65535");

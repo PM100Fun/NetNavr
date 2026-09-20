@@ -34,6 +34,23 @@ test("rejects non-loopback listeners", async () => {
   );
 });
 
+test("rejects malformed port environment values", async () => {
+  const previousPort = process.env.PORT;
+
+  try {
+    for (const value of ["", " ", "\t", "8787.0", "1e3", "65536", "-1"]) {
+      process.env.PORT = value;
+      await assert.rejects(
+        startAgentServer({ workspaceRoot: process.cwd(), sessionToken }),
+        /Agent server port must be an integer between 0 and 65535/
+      );
+    }
+  } finally {
+    if (previousPort === undefined) delete process.env.PORT;
+    else process.env.PORT = previousPort;
+  }
+});
+
 test("serves correlated read-only diagnostics with structured errors", async () => {
   await withAgentServer(async (server) => {
     const suppliedRequestId = "req_00000000-0000-4000-8000-000000000000";
