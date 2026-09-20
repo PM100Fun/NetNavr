@@ -105,6 +105,51 @@ test("rejects diagnostic request bodies and closes the connection", async () => 
   });
 });
 
+test("rejects invalid request targets and closes the connection", async () => {
+  await withAgentServer(async (server) => {
+    for (const target of [
+      "http://[/health",
+      "http://localhost:99999/health",
+      "//[/health"
+    ]) {
+      const response = await sendRawHttpRequest(
+        server.host,
+        server.port,
+        [
+          `GET ${target} HTTP/1.1`,
+          `Host: ${server.host}:${server.port}`,
+          "Connection: keep-alive",
+          "",
+          ""
+        ].join("\r\n")
+      );
+
+      assert.match(response, /^HTTP\/1\.1 400 /, target);
+      assert.match(response, /connection: close/i, target);
+      assert.match(response, /cache-control: no-store/i, target);
+      assert.match(response, /x-content-type-options: nosniff/i, target);
+      assert.match(response, /"code":"invalid_request_target"/, target);
+      assert.match(response, /"message":"Request target is invalid"/, target);
+    }
+
+    for (const target of ["/health?probe=1", `${server.url}/health?probe=1`]) {
+      const response = await sendRawHttpRequest(
+        server.host,
+        server.port,
+        [
+          `GET ${target} HTTP/1.1`,
+          `Host: ${server.host}:${server.port}`,
+          "Connection: close",
+          "",
+          ""
+        ].join("\r\n")
+      );
+
+      assert.match(response, /^HTTP\/1\.1 200 /, target);
+    }
+  });
+});
+
 test("rejects headers above the Shell diagnostic limit", async () => {
   await withAgentServer(async (server) => {
     const response = await sendRawHttpRequest(

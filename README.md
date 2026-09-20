@@ -88,6 +88,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Keeps workspace, sandbox, and approval policy under server control for local WebSocket sessions.
 - Generates and shares a fresh local session token between the server and Web client when using `npm run dev`.
 - Exposes `GET /health` and `GET /api/providers` as bounded read-only diagnostics with server-generated request IDs and structured errors; rejects request bodies, unsupported methods on known routes, and oversized headers.
+- Returns 400 and closes the connection when a Shell diagnostic request target cannot be parsed as a URL.
 - Accepts WebSocket upgrades only for the exact `GET /ws` target, caps simultaneous authenticated clients at four, correlates rejected upgrades with server-generated request IDs, and shuts down idempotently.
 - Retries unexpected local WebSocket drops with one capped `250 ms` to `5 s` backoff timer, resets the backoff after a successful open, and cancels pending retries when the Renderer unmounts.
 - Limits live Agent output state to `256,000` UTF-16 code units with a visible truncation marker, keeps only the newest `500` event rows, and assigns monotonic row IDs.
