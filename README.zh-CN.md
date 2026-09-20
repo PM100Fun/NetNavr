@@ -87,6 +87,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 包含 Web、Electron Desktop、本地 Agent Server、协议、Model Router 与 Codex Client。
 - 本地 WebSocket 会话中的工作区、sandbox 与 approval policy 由服务端控制。
 - 使用 `npm run dev` 时，为服务端与 Web 客户端生成并共享新的本地会话令牌。
+- 启动 Agent Server 前，将独立 Shell 的 `PORT` 环境变量校验为 `0` 至 `65535` 的十进制整数。
 - 通过 `GET /health` 与 `GET /api/providers` 提供有界只读诊断，包含服务端生成的请求 ID 与结构化错误；拒绝请求体、已知路由上的错误方法和过大的请求头。
 - Shell 诊断请求地址无法解析为 URL 时返回 400 并关闭连接。
 - 只接受精确 `GET /ws` 目标的 WebSocket 升级，同时最多允许四个已认证客户端；被拒升级包含服务端请求 ID，服务关闭可以安全地重复调用。

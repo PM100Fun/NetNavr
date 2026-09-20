@@ -87,6 +87,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Contains Web, Electron Desktop, local Agent Server, protocol, model-router, and Codex-client packages.
 - Keeps workspace, sandbox, and approval policy under server control for local WebSocket sessions.
 - Generates and shares a fresh local session token between the server and Web client when using `npm run dev`.
+- Validates the standalone Shell `PORT` environment variable as a decimal integer from `0` through `65535` before starting the Agent Server.
 - Exposes `GET /health` and `GET /api/providers` as bounded read-only diagnostics with server-generated request IDs and structured errors; rejects request bodies, unsupported methods on known routes, and oversized headers.
 - Returns 400 and closes the connection when a Shell diagnostic request target cannot be parsed as a URL.
 - Accepts WebSocket upgrades only for the exact `GET /ws` target, caps simultaneous authenticated clients at four, correlates rejected upgrades with server-generated request IDs, and shuts down idempotently.
