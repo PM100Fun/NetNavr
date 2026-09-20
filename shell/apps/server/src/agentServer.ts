@@ -340,7 +340,15 @@ function routeHttpRequest(
   try {
     pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
   } catch {
-    writeError(response, 400, requestId, "invalid_request_target", "Request target is invalid");
+    request.resume();
+    writeError(
+      response,
+      400,
+      requestId,
+      "invalid_request_target",
+      "Request target is invalid",
+      { connection: "close" }
+    );
     return;
   }
 
