@@ -410,7 +410,12 @@ function normalizePort(value: number | string | undefined): number {
 }
 
 async function resolveWorkspaceRoot(configuredRoot: string | undefined): Promise<string> {
-  const candidate = path.resolve(configuredRoot?.trim() || process.cwd());
+  const root = configuredRoot === undefined ? process.cwd() : configuredRoot.trim();
+  if (root.length === 0) {
+    throw new Error("Agent server workspace must be a non-empty directory path");
+  }
+
+  const candidate = path.resolve(root);
   const resolved = await realpath(candidate);
   const details = await stat(resolved);
   if (!details.isDirectory()) throw new Error("Agent server workspace must be a directory");

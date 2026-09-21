@@ -88,6 +88,7 @@ The table below describes what can be inspected in the current source tree. Prod
 - Keeps workspace, sandbox, and approval policy under server control for local WebSocket sessions.
 - Generates and shares a fresh local session token between the server and Web client when using `npm run dev`.
 - Validates the standalone Shell `PORT` environment variable as a decimal integer from `0` through `65535` before starting the Agent Server.
+- Rejects an explicitly empty or whitespace-only `NETNAVR_SHELL_WORKSPACE` value instead of silently falling back to the current directory.
 - Exposes `GET /health` and `GET /api/providers` as bounded read-only diagnostics with server-generated request IDs and structured errors; rejects request bodies, unsupported methods on known routes, and oversized headers.
 - Returns 400 and closes the connection when a Shell diagnostic request target cannot be parsed as a URL.
 - Accepts WebSocket upgrades only for the exact `GET /ws` target, caps simultaneous authenticated clients at four, correlates rejected upgrades with server-generated request IDs, and shuts down idempotently.
@@ -232,6 +233,7 @@ npm --prefix pay start
 | Core | `NETNAVR_CORE_PORT` | `8786` | Core loopback port; the Electron Node Status bridge consumes the same validated value |
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core data directory |
 | Shell | `PORT` | `8787` | Standalone development Agent Server port; Electron uses an OS-assigned port |
+| Shell | `NETNAVR_SHELL_WORKSPACE` | current directory | Standalone Agent Server workspace; an explicit value must name a directory |
 | Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | Standalone development Web client WebSocket URL |
 | Pay | `NETNAVR_PAY_HOST` | `127.0.0.1` | Fixed numeric loopback host; other values are rejected |
 | Pay | `NETNAVR_PAY_PORT` | `8788` | Pay sandbox port |

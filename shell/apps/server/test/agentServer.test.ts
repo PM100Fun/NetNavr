@@ -51,6 +51,23 @@ test("rejects malformed port environment values", async () => {
   }
 });
 
+test("rejects blank workspace environment values", async () => {
+  const previousWorkspace = process.env.NETNAVR_SHELL_WORKSPACE;
+
+  try {
+    for (const value of ["", " ", "\t"]) {
+      process.env.NETNAVR_SHELL_WORKSPACE = value;
+      await assert.rejects(
+        startAgentServer({ port: 0, sessionToken }),
+        /Agent server workspace must be a non-empty directory path/
+      );
+    }
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.NETNAVR_SHELL_WORKSPACE;
+    else process.env.NETNAVR_SHELL_WORKSPACE = previousWorkspace;
+  }
+});
+
 test("serves correlated read-only diagnostics with structured errors", async () => {
   await withAgentServer(async (server) => {
     const suppliedRequestId = "req_00000000-0000-4000-8000-000000000000";
