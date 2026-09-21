@@ -88,6 +88,7 @@ NetNavr 想解决的不是“再做一个聊天窗口”，而是个人 AI 的�
 - 本地 WebSocket 会话中的工作区、sandbox 与 approval policy 由服务端控制。
 - 使用 `npm run dev` 时，为服务端与 Web 客户端生成并共享新的本地会话令牌。
 - 启动 Agent Server 前，将独立 Shell 的 `PORT` 环境变量校验为 `0` 至 `65535` 的十进制整数。
+- 如果显式设置 `NETNAVR_SHELL_WORKSPACE` 为空或仅含空白字符，Agent Server 会拒绝启动，不会静默回退到当前目录。
 - 通过 `GET /health` 与 `GET /api/providers` 提供有界只读诊断，包含服务端生成的请求 ID 与结构化错误；拒绝请求体、已知路由上的错误方法和过大的请求头。
 - Shell 诊断请求地址无法解析为 URL 时返回 400 并关闭连接。
 - 只接受精确 `GET /ws` 目标的 WebSocket 升级，同时最多允许四个已认证客户端；被拒升级包含服务端请求 ID，服务关闭可以安全地重复调用。
@@ -232,6 +233,7 @@ npm --prefix pay start
 | Core | `NETNAVR_CORE_PORT` | `8786` | Core 回环端口；Electron Node Status 桥使用同一个经过校验的值 |
 | Core | `NETNAVR_CORE_DATA_DIR` | `~/.netnavr/core` | Core 数据目录 |
 | Shell | `PORT` | `8787` | 独立开发 Agent Server 端口；Electron 使用操作系统分配端口 |
+| Shell | `NETNAVR_SHELL_WORKSPACE` | 当前目录 | 独立 Agent Server 工作区；显式值必须是目录 |
 | Shell | `VITE_NETNAVR_SHELL_WS` | `ws://127.0.0.1:8787/ws` | 独立开发 Web 客户端 WebSocket 地址 |
 | Pay | `NETNAVR_PAY_HOST` | `127.0.0.1` | 固定的数字回环地址；其他值会被拒绝 |
 | Pay | `NETNAVR_PAY_PORT` | `8788` | Pay 沙盒端口 |
