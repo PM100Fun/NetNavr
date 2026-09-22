@@ -261,6 +261,7 @@ async function requestJson(
   const requestId = normalizeRequestId(response.headers.get("x-request-id"));
 
   if (!response.ok) {
+    discardResponseBody(response);
     return {
       ok: false,
       failure: failure(
@@ -274,6 +275,7 @@ async function requestJson(
 
   const contentType = response.headers.get("content-type")?.toLowerCase();
   if (!contentType?.startsWith("application/json")) {
+    discardResponseBody(response);
     return {
       ok: false,
       failure: failure(
@@ -301,6 +303,14 @@ async function requestJson(
         requestId,
       ),
     };
+  }
+}
+
+function discardResponseBody(response: Response): void {
+  try {
+    void response.body?.cancel().catch(() => undefined);
+  } catch {
+    // Cleanup must not replace the diagnostic failure with another error.
   }
 }
 
