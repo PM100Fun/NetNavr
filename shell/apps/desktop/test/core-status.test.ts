@@ -133,6 +133,33 @@ test("reports HTTP failures with a valid diagnostic request ID", async () => {
   });
 });
 
+test("cancels response bodies when Core status responses will not be read", async () => {
+  const cases = [
+    { status: 503, contentType: "application/json", expectedCode: "http_status" },
+    { status: 200, contentType: "text/plain", expectedCode: "invalid_response" },
+  ] as const;
+
+  for (const { status, contentType, expectedCode } of cases) {
+    let bodyCancelled = false;
+    const response = new Response(
+      new ReadableStream({
+        cancel() {
+          bodyCancelled = true;
+        },
+      }),
+      { status, headers: { "content-type": contentType } },
+    );
+
+    const result = await fetchCoreStatus({
+      fetchImpl: async () => response,
+    });
+
+    assert.equal(result.state, "error");
+    assert.equal(result.code, expectedCode);
+    assert.equal(bodyCancelled, true);
+  }
+});
+
 test("separates an unreachable Core from a local timeout", async () => {
   const unreachable = await fetchCoreStatus({
     fetchImpl: async () => {
