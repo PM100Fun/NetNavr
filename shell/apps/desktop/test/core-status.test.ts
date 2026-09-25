@@ -184,6 +184,33 @@ test("separates an unreachable Core from a local timeout", async () => {
   assert.equal(timedOut.code, "timeout");
 });
 
+for (const endpoint of ["/v1/health", "/v1/node"]) {
+  test(`reports a timeout while reading ${endpoint} response body`, async () => {
+    const requests: string[] = [];
+    const result = await fetchCoreStatus({
+      timeoutMs: 20,
+      fetchImpl: async (input, init) => {
+        const pathname = new URL(String(input)).pathname;
+        requests.push(pathname);
+        if (pathname !== endpoint) return jsonResponse(health);
+        const signal = init?.signal;
+        assert.ok(signal);
+        return new Response(new ReadableStream({
+          start(controller) {
+            const abort = () => controller.error(new DOMException("aborted", "AbortError"));
+            if (signal.aborted) abort();
+            else signal.addEventListener("abort", abort, { once: true });
+          },
+        }), { headers: { "content-type": "application/json" } });
+      },
+    });
+    assert.equal(result.state, "offline");
+    assert.equal(result.code, "timeout");
+    assert.deepEqual(requests, endpoint === "/v1/health"
+      ? ["/v1/health"] : ["/v1/health", "/v1/node"]);
+  });
+}
+
 test("accepts only explicit numeric loopback Core ports", async () => {
   assert.equal(coreOriginFromEnvironment(undefined), "http://127.0.0.1:8786");
   assert.equal(coreOriginFromEnvironment("80"), "http://127.0.0.1:80");

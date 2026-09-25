@@ -293,7 +293,9 @@ async function requestJson(
       value: await readBoundedJson(response),
       ...(requestId ? { requestId } : {}),
     };
-  } catch {
+  } catch (error) {
+    // Let the shared request deadline retain its timeout classification.
+    if (signal.aborted) throw error;
     return {
       ok: false,
       failure: failure(
