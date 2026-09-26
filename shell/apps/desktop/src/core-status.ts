@@ -273,8 +273,8 @@ async function requestJson(
     };
   }
 
-  const contentType = response.headers.get("content-type")?.toLowerCase();
-  if (!contentType?.startsWith("application/json")) {
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
     discardResponseBody(response);
     return {
       ok: false,
