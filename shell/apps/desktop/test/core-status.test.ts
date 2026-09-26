@@ -160,6 +160,41 @@ test("cancels response bodies when Core status responses will not be read", asyn
   }
 });
 
+test("cancels bodies rejected by Content-Length without changing diagnostics", async () => {
+  for (const endpoint of ["/v1/health", "/v1/node"]) {
+    for (const length of ["invalid", "-1", String(CORE_STATUS_MAX_RESPONSE_BYTES + 1), "9007199254740992"]) {
+      for (const rejectCleanup of [false, true]) {
+        let cancelled = false;
+        let requests = 0;
+        const response = new Response(new ReadableStream({
+          cancel() {
+            cancelled = true;
+            if (rejectCleanup) return Promise.reject(new Error("cleanup failed"));
+          },
+        }), { headers: {
+          "content-type": "application/json",
+          "content-length": length,
+          "x-request-id": "req_12345678-1234-4123-8123-123456789abc",
+        } });
+        const result = await fetchCoreStatus({
+          fetchImpl: async (input) => {
+            requests++;
+            return new URL(String(input)).pathname === endpoint ? response : jsonResponse(health);
+          },
+        });
+        assert.equal(cancelled, true, `${endpoint}: ${length}`);
+        assert.deepEqual(result, {
+          state: "error",
+          code: "invalid_response",
+          message: `Core ${endpoint} response is invalid or too large`,
+          requestId: "req_12345678-1234-4123-8123-123456789abc",
+        });
+        assert.equal(requests, endpoint === "/v1/health" ? 1 : 2);
+      }
+    }
+  }
+});
+
 test("separates an unreachable Core from a local timeout", async () => {
   const unreachable = await fetchCoreStatus({
     fetchImpl: async () => {
