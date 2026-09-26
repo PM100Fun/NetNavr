@@ -320,10 +320,12 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength !== null) {
     if (!/^\d+$/.test(declaredLength)) {
+      discardResponseBody(response);
       throw new TypeError("Invalid content length");
     }
     const length = Number(declaredLength);
     if (!Number.isSafeInteger(length) || length > CORE_STATUS_MAX_RESPONSE_BYTES) {
+      discardResponseBody(response);
       throw new RangeError("Core response is too large");
     }
   }
