@@ -65,6 +65,44 @@ test("reads health and persistent Node identity through bounded GET requests", a
   });
 });
 
+test("rejects JSON media-type lookalikes on both Core endpoints", async () => {
+  for (const endpoint of ["/v1/health", "/v1/node"]) {
+    for (const contentType of ["application/jsonp", "application/json-seq", "application/json-invalid; charset=utf-8", "application/json, text/plain"]) {
+      let cancelled = false;
+      let requests = 0;
+      const result = await fetchCoreStatus({
+        fetchImpl: async (input) => {
+          requests++;
+          const path = new URL(String(input)).pathname;
+          if (path !== endpoint) return jsonResponse(path === "/v1/health" ? health : node);
+          return new Response(new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(JSON.stringify(path === "/v1/health" ? health : node)));
+              controller.close();
+            },
+            cancel() { cancelled = true; },
+          }), { headers: { "content-type": contentType } });
+        },
+      });
+      assert.equal(result.state, "error", contentType);
+      assert.equal(result.code, "invalid_response");
+      assert.equal(cancelled, true);
+      assert.equal(requests, endpoint === "/v1/health" ? 1 : 2);
+    }
+  }
+});
+
+test("accepts exact JSON media types with case and parameter variations", async () => {
+  for (const contentType of ["application/json", "Application/JSON", "application/json; charset=utf-8", "APPLICATION/JSON ; charset=UTF-8"]) {
+    const result = await fetchCoreStatus({
+      fetchImpl: async (input) => new Response(JSON.stringify(
+        new URL(String(input)).pathname === "/v1/health" ? health : node,
+      ), { headers: { "content-type": contentType } }),
+    });
+    assert.equal(result.state, "online", contentType);
+  }
+});
+
 test("classifies another loopback service as incompatible", async () => {
   const result = await fetchCoreStatus({
     fetchImpl: async () =>
