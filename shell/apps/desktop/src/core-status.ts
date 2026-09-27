@@ -338,15 +338,20 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > CORE_STATUS_MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new RangeError("Core response is too large");
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > CORE_STATUS_MAX_RESPONSE_BYTES) {
+        // Cleanup must not delay or replace the size-limit diagnostic.
+        void reader.cancel().catch(() => undefined);
+        throw new RangeError("Core response is too large");
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    reader.releaseLock();
   }
 
   const body = new Uint8Array(totalBytes);
