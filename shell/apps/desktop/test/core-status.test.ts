@@ -153,6 +153,55 @@ test("rejects malformed and oversized Core responses", async () => {
   assert.equal(oversized.code, "invalid_response");
 });
 
+test("oversized streams return diagnostics without waiting for cancellation", async () => {
+  for (const endpoint of ["/v1/health", "/v1/node"]) {
+    for (const cleanup of ["pending", "rejected"]) {
+      let cancelled = false;
+      const response = new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(CORE_STATUS_MAX_RESPONSE_BYTES + 1));
+        },
+        cancel() {
+          cancelled = true;
+          return cleanup === "pending" ? new Promise<void>(() => {}) : Promise.reject(new Error("cleanup failed"));
+        },
+      }), { headers: { "content-type": "application/json" } });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          fetchCoreStatus({
+            timeoutMs: 50,
+            fetchImpl: async (input) => new URL(String(input)).pathname === endpoint ? response : jsonResponse(health),
+          }),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("status query blocked on cleanup")), 500);
+          }),
+        ]);
+        assert.equal(result.state, "error");
+        assert.equal(result.code, "invalid_response");
+        assert.equal(cancelled, true);
+        assert.equal(response.body?.locked, false);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+});
+
+test("releases Core response reader locks after success and read failure", async () => {
+  const responses = [jsonResponse(health), jsonResponse(node)];
+  let index = 0;
+  assert.equal((await fetchCoreStatus({ fetchImpl: async () => responses[index++]! })).state, "online");
+  for (const response of responses) assert.equal(response.body?.locked, false);
+  const broken = new Response(new ReadableStream({
+    start(controller) { controller.error(new Error("stream failed")); },
+  }), { headers: { "content-type": "application/json" } });
+  const result = await fetchCoreStatus({ fetchImpl: async () => broken });
+  assert.equal(result.state, "error");
+  assert.equal(result.code, "invalid_response");
+  assert.equal(broken.body?.locked, false);
+});
+
 test("reports HTTP failures with a valid diagnostic request ID", async () => {
   const result = await fetchCoreStatus({
     fetchImpl: async () =>
